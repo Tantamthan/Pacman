@@ -195,32 +195,30 @@ def handle_keyup(event: pygame.event.Event, player: Player) -> None:
 def apply_direction_command(player: Player) -> None:
     """Commit the queued direction if that turn is allowed."""
     if player.direction_command == RIGHT and player.turns_allowed[RIGHT]:
-        player.direction = RIGHT
+        player.set_direction(RIGHT)
     if player.direction_command == LEFT and player.turns_allowed[LEFT]:
-        player.direction = LEFT
+        player.set_direction(LEFT)
     if player.direction_command == UP and player.turns_allowed[UP]:
-        player.direction = UP
+        player.set_direction(UP)
     if player.direction_command == DOWN and player.turns_allowed[DOWN]:
-        player.direction = DOWN
+        player.set_direction(DOWN)
 
 
 def move_ghosts(ghosts: list[Ghost], level: Level) -> None:
     """Move all ghosts in the same order as the original loop."""
-    del level
     blinky, inky, pinky, clyde = ghosts
-    if not blinky.dead and not blinky.in_box:
-        blinky.move_blinky()
-    else:
-        blinky.move_clyde()
-    if not pinky.dead and not pinky.in_box:
-        pinky.move_pinky()
-    else:
-        pinky.move_clyde()
-    if not inky.dead and not inky.in_box:
+    blinky.move_astar(level, blinky.target)
+    pinky.move_astar(level, pinky.target)
+    if inky.is_patrolling:
+        inky.move_astar(level, inky.target)
+    elif not inky.dead and not inky.in_box:
         inky.move_inky()
     else:
         inky.move_clyde()
-    clyde.move_clyde()
+    if clyde.is_patrolling:
+        clyde.move_astar(level, clyde.target)
+    else:
+        clyde.move_clyde()
 
 
 def handle_ghost_collisions(
@@ -301,7 +299,7 @@ def main() -> None:
             ghost.check_collisions(level)
             ghost.draw(screen, player, ghost_images["spooked"], ghost_images["dead"])
         draw_misc(screen, font, player, player_images, game_over, game_won)
-        targets = get_targets(player, ghosts)
+        targets = get_targets(player, ghosts, level)
 
         player.check_collisions(level)
         if moving:

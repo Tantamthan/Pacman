@@ -28,6 +28,7 @@ from pacman.constants import (
     PLAYER_START_X,
     PLAYER_START_Y,
     PLAYER_TURN_FUDGE,
+    PLAYER_UNSTICK_FRAMES,
     PLAYER_TUNNEL_LEFT,
     PLAYER_TUNNEL_RIGHT,
     PLAYER_WRAP_LEFT,
@@ -62,6 +63,7 @@ class Player:
         self.power_counter: int = 0
         self.turns_allowed: list[bool] = [False, False, False, False]
         self.eaten_ghost: list[bool] = [False, False, False, False]
+        self.blocked_frames: int = 0
 
     @property
     def center_x(self) -> int:
@@ -147,14 +149,70 @@ class Player:
     def move(self, level: Level) -> None:
         """Move Pac-Man one frame using the current direction."""
         del level
-        if self.direction == RIGHT and self.turns_allowed[RIGHT]:
+        if self._move_in_direction(self.direction):
+            self.blocked_frames = 0
+            return
+
+        self.blocked_frames += 1
+        if self.blocked_frames < PLAYER_UNSTICK_FRAMES:
+            return
+
+        fallback = self._fallback_direction()
+        if fallback is None:
+            return
+
+        self.set_direction(fallback)
+        if self._move_in_direction(self.direction):
+            self.blocked_frames = 0
+
+    def _move_in_direction(self, direction: int) -> bool:
+        """Move one frame in direction when allowed."""
+        if direction == RIGHT and self.turns_allowed[RIGHT]:
             self.x_pos += self.speed
-        elif self.direction == LEFT and self.turns_allowed[LEFT]:
+            return True
+        if direction == LEFT and self.turns_allowed[LEFT]:
             self.x_pos -= self.speed
-        if self.direction == UP and self.turns_allowed[UP]:
+            return True
+        if direction == UP and self.turns_allowed[UP]:
             self.y_pos -= self.speed
-        elif self.direction == DOWN and self.turns_allowed[DOWN]:
+            return True
+        if direction == DOWN and self.turns_allowed[DOWN]:
             self.y_pos += self.speed
+            return True
+        return False
+
+    def _fallback_direction(self) -> int | None:
+        """Choose a legal direction after Pac-Man has been blocked."""
+        if self.turns_allowed[self.direction_command]:
+            return self.direction_command
+        reverse = {RIGHT: LEFT, LEFT: RIGHT, UP: DOWN, DOWN: UP}
+        reverse_direction = reverse[self.direction]
+        if self.turns_allowed[reverse_direction]:
+            return reverse_direction
+        for direction, allowed in enumerate(self.turns_allowed):
+            if allowed:
+                return direction
+        return None
+
+    def set_direction(self, direction: int) -> None:
+        """Set direction and align Pac-Man to the lane being entered."""
+        if direction == self.direction:
+            return
+        if direction in (RIGHT, LEFT):
+            self._snap_center_y_to_cell()
+        else:
+            self._snap_center_x_to_cell()
+        self.direction = direction
+
+    def _snap_center_x_to_cell(self) -> None:
+        """Align Pac-Man horizontally to the current cell center."""
+        col = self.center_x // CELL_W
+        self.x_pos = col * CELL_W + CELL_W // 2 - PLAYER_CENTER_OFFSET_X
+
+    def _snap_center_y_to_cell(self) -> None:
+        """Align Pac-Man vertically to the current cell center."""
+        row = self.center_y // CELL_H
+        self.y_pos = row * CELL_H + CELL_H // 2 - PLAYER_CENTER_OFFSET_Y
 
     def eat_tile_at(self, level: Level, center_x: int, center_y: int) -> None:
         """Consume dots and power dots at the supplied board center."""
@@ -180,6 +238,7 @@ class Player:
         self.powerup = False
         self.power_counter = 0
         self.eaten_ghost = [False, False, False, False]
+        self.blocked_frames = 0
 
     def reset_full(self) -> None:
         """Reset score, lives, and all player state for a new game."""
