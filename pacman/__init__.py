@@ -1,0 +1,2 @@
+"""Pac-Man game package."""
+
