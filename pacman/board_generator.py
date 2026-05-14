@@ -48,12 +48,15 @@ TUNNEL_LEFT_COLS = range(0, 7)
 TUNNEL_RIGHT_COLS = range(23, 30)
 SPINE_COLS = (14, 15)
 SPINE_ROWS = (6, 11, 15, 20, 24)
+# Cols just outside ghost house walls; guaranteed path so upper/lower halves stay connected.
+GHOST_BYPASS_ROWS = range(12, 18)
+GHOST_BYPASS_COLS = (11, 18)
 
-TARGET_PATH_DENSITY = 0.58 #tỉ lệ đường đi
-DEFAULT_POPULATION_SIZE = 14
-DEFAULT_GENERATIONS = 1
+TARGET_PATH_DENSITY = 0.55 #tỉ lệ đường đi
+DEFAULT_POPULATION_SIZE = 20
+DEFAULT_GENERATIONS = 5
 TOURNAMENT_SIZE = 4
-MUTATION_RATE = 0.08
+MUTATION_RATE = 0.25
 CROSSOVER_RATE = 0.75
 MIN_GHOST_DISTANCE = 12
 MIN_EARLY_STOP_GENERATION = 3
@@ -72,21 +75,43 @@ def generate_board(
     population_size: int = DEFAULT_POPULATION_SIZE,
     generations: int = DEFAULT_GENERATIONS,
 ) -> Level:
-    """Generate a random playable board from a small batch of repaired layouts."""
+    """Generate a random playable board using a genetic algorithm."""
     rng = random.Random(seed)
-    del generations
+    population = [_random_chromosome(rng) for _ in range(population_size)]
+
     best_board = _fallback_board()
     best_score = -1_000_000.0
     playable_candidates: list[tuple[float, Level]] = []
 
-    for _ in range(population_size):
-        board = decode_chromosome(_random_chromosome(rng))
-        fitness = score_board(board)
-        if fitness > best_score:
-            best_score = fitness
-            best_board = board
-        if is_playable(board):
-            playable_candidates.append((fitness, board))
+    for generation in range(generations):
+        scored: list[tuple[float, Chromosome]] = []
+        for chrom in population:
+            board = decode_chromosome(chrom)
+            fitness = score_board(board)
+            scored.append((fitness, chrom))
+            if fitness > best_score:
+                best_score = fitness
+                best_board = board
+            if is_playable(board):
+                playable_candidates.append((fitness, board))
+
+        if len(playable_candidates) >= MIN_EARLY_STOP_GENERATION and best_score >= EARLY_STOP_SCORE:
+            break
+
+        if generation == generations - 1:
+            break
+
+        next_population: list[Chromosome] = []
+        while len(next_population) < population_size:
+            parent_a = _select_parent(scored, rng)
+            parent_b = _select_parent(scored, rng)
+            if rng.random() < CROSSOVER_RATE:
+                child = _uniform_crossover(parent_a, parent_b, rng)
+            else:
+                child = _clone_chromosome(parent_a)
+            _mutate(child, rng)
+            next_population.append(child)
+        population = next_population
 
     if playable_candidates:
         playable_candidates.sort(key=lambda item: item[0], reverse=True)
@@ -97,7 +122,10 @@ def generate_board(
     LAST_GENERATION_INFO["seed"] = seed
     LAST_GENERATION_INFO["fitness"] = best_score
     LAST_GENERATION_INFO["playable"] = playable
-    LAST_GENERATION_INFO["dead_ends"] = _dead_end_count(best_board, _bfs_board(best_board, PLAYER_CELL)[0])
+    if playable:
+        LAST_GENERATION_INFO["dead_ends"] = _dead_end_count(best_board, _bfs_board(best_board, PLAYER_CELL)[0])
+    else:
+        LAST_GENERATION_INFO["dead_ends"] = None
     if playable:
         return best_board
     return _fallback_board()
@@ -178,16 +206,43 @@ def is_playable(board: Level) -> bool:
 
 
 def _random_chromosome(rng: random.Random) -> Chromosome:
-    """Create a random left-half chromosome near the target density."""
-    chromosome = []
-    for row in range(BOARD_ROWS):
-        genes = []
-        for col in range(HALF_COLS):
-            if _fixed_logical_value(row, col) is not None:
-                genes.append(_fixed_logical_value(row, col))
-            else:
-                genes.append(0 if rng.random() < TARGET_PATH_DENSITY else 1)
-        chromosome.append(genes)
+    """Build a left-half chromosome from large hollow frames placed in safe row zones.
+
+    The map is divided into 5 zones whose borders never fall on spine rows (6,11,15,20,24).
+    Four column slots give up to 20 frame slots per half; ~88% are activated for dense coverage.
+    Adjacent frames share wall edges and merge into connected rectangular structures.
+    """
+    chromosome = [[0] * HALF_COLS for _ in range(BOARD_ROWS)]
+
+    # (top_row, h_min, h_max) — frame rows [top, top+h], spine row below is the corridor
+    row_zones = [
+        (1,  3, 5),   # rows 1-5:  corridor at spine-row 6
+        (7,  2, 4),   # rows 7-10: corridor at spine-row 11
+        (18, 1, 2),   # rows 18-20: row 17 kept open, corridor at spine-row 20
+        (21, 2, 3),   # rows 21-23: corridor at spine-row 24
+        (26, 3, 5),   # rows 26-30: corridor at rows 31-32
+    ]
+    # Four column positions for denser coverage across the 15-column half
+    col_starts = [1, 4, 8, 11]
+
+    for top, h_min, h_max in row_zones:
+        for left in col_starts:
+            if rng.random() < 0.88:
+                h = rng.randint(h_min, h_max)
+                max_w = max(2, min(5, HALF_COLS - 2 - left))
+                w = rng.randint(2, max_w)
+                for r in range(top, min(top + h + 1, BOARD_ROWS - 1)):
+                    for c in range(left, min(left + w + 1, HALF_COLS - 1)):
+                        if r == top or r == top + h or c == left or c == left + w:
+                            if _fixed_logical_value(r, c) is None:
+                                chromosome[r][c] = 1
+
+    for r in range(BOARD_ROWS):
+        for c in range(HALF_COLS):
+            fixed = _fixed_logical_value(r, c)
+            if fixed is not None:
+                chromosome[r][c] = fixed
+
     return chromosome
 
 
@@ -214,11 +269,30 @@ def _uniform_crossover(parent_a: Chromosome, parent_b: Chromosome, rng: random.R
 
 
 def _mutate(chromosome: Chromosome, rng: random.Random) -> None:
-    """Flip random mutable genes and carve a few local clusters."""
-    for row in range(BOARD_ROWS):
-        for col in range(HALF_COLS):
-            if _fixed_logical_value(row, col) is None and rng.random() < MUTATION_RATE:
-                chromosome[row][col] = 1 - chromosome[row][col]
+    """Toggle a random zone-slot frame (add or erase) and carve a 2×2 cluster."""
+    row_zones = [
+        (1,  3, 5),
+        (7,  2, 4),
+        (18, 1, 2),
+        (21, 2, 3),
+        (26, 3, 5),
+    ]
+    col_starts = [1, 4, 8, 11]
+
+    if rng.random() < MUTATION_RATE:
+        top, h_min, h_max = rng.choice(row_zones)
+        left = rng.choice(col_starts)
+        h = rng.randint(h_min, h_max)
+        max_w = max(2, min(5, HALF_COLS - 2 - left))
+        w = rng.randint(2, max_w)
+        corner_r = min(top, BOARD_ROWS - 2)
+        corner_c = min(left, HALF_COLS - 2)
+        new_val = 0 if chromosome[corner_r][corner_c] == 1 else 1
+        for r in range(top, min(top + h + 1, BOARD_ROWS - 1)):
+            for c in range(left, min(left + w + 1, HALF_COLS - 1)):
+                if r == top or r == top + h or c == left or c == left + w:
+                    if _fixed_logical_value(r, c) is None:
+                        chromosome[r][c] = new_val
 
     for _ in range(2):
         row = rng.randrange(1, BOARD_ROWS - 1)
@@ -268,19 +342,22 @@ def _fixed_logical_value(row: int, col: int) -> int | None:
         return 0
     if row in PLAYER_SAFE_ROWS and col in PLAYER_SAFE_COLS:
         return 0
+    if row in GHOST_BYPASS_ROWS and col in GHOST_BYPASS_COLS:
+        return 0
     return None
 
 
 def _repair_connectivity(logical: list[list[int]]) -> None:
-    """Connect isolated path regions by carving shortest repair corridors."""
+    """Connect isolated path regions by carving corridors on the left half only, then re-mirroring."""
     _apply_fixed_mask(logical)
 
-    for _ in range(10):
+    for _ in range(50):
         reachable = _bfs_logical(logical, PLAYER_CELL)
+        # Only look at isolated cells in the left half so repairs stay symmetric.
         isolated = {
             (row, col)
             for row in range(BOARD_ROWS)
-            for col in range(BOARD_COLS)
+            for col in range(HALF_COLS)
             if logical[row][col] == 0
             and (row, col) not in reachable
             and _fixed_logical_value(row, col) is None
@@ -290,12 +367,16 @@ def _repair_connectivity(logical: list[list[int]]) -> None:
         path = _shortest_repair_path(logical, reachable, isolated)
         if not path:
             for row, col in isolated:
-                logical[row][col] = 1
-            _apply_fixed_mask(logical)
-            continue
-        for row, col in path:
-            if _fixed_logical_value(row, col) is None:
-                logical[row][col] = 0
+                if col < HALF_COLS and _fixed_logical_value(row, col) is None:
+                    logical[row][col] = 1
+        else:
+            for row, col in path:
+                if col < HALF_COLS and _fixed_logical_value(row, col) is None:
+                    logical[row][col] = 0
+        # Mirror left half to right half to preserve symmetry after each repair pass.
+        for row in range(BOARD_ROWS):
+            for col in range(HALF_COLS):
+                logical[row][BOARD_COLS - 1 - col] = logical[row][col]
         _apply_fixed_mask(logical)
 
 
