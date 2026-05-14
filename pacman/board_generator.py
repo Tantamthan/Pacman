@@ -59,7 +59,7 @@ TARGET_PATH_DENSITY = 0.38
 DEFAULT_POPULATION_SIZE = 20
 DEFAULT_GENERATIONS = 5
 TOURNAMENT_SIZE = 4
-MUTATION_RATE = 0.25
+MUTATION_RATE = 0.4
 CROSSOVER_RATE = 0.9
 MIN_GHOST_DISTANCE = 12
 MIN_EARLY_STOP_GENERATION = 3
@@ -83,20 +83,203 @@ def _offset(shape: Shape, row_offset: int, col_offset: int) -> Shape:
     return tuple((row + row_offset, col + col_offset) for row, col in shape)
 
 
+def _hollow_rect(height: int, width: int) -> Shape:
+    """Return only the outline of a rectangle (interior is path)."""
+    if height < 3 or width < 3:
+        return _solid_rect(height, width)
+    cells = []
+    for r in range(height):
+        for c in range(width):
+            if r == 0 or r == height - 1 or c == 0 or c == width - 1:
+                cells.append((r, c))
+    return tuple(cells)
+
+
+def _l_shape(height: int, width: int, corner: str = "bl") -> Shape:
+    """L-shape: one full column + one full row at the chosen corner.
+    corner ∈ {'tl', 'tr', 'bl', 'br'}.
+    """
+    cells = set()
+    if corner in ("tl", "tr"):
+        for c in range(width):
+            cells.add((0, c))  # top row
+    else:
+        for c in range(width):
+            cells.add((height - 1, c))  # bottom row
+    if corner in ("tl", "bl"):
+        for r in range(height):
+            cells.add((r, 0))  # left col
+    else:
+        for r in range(height):
+            cells.add((r, width - 1))  # right col
+    return tuple(sorted(cells))
+
+
+def _t_shape(height: int, width: int, orient: str = "down") -> Shape:
+    """T-shape: full bar + perpendicular stem.
+    orient ∈ {'down','up','left','right'} — direction the stem points to.
+    """
+    cells = set()
+    if orient in ("down", "up"):
+        # horizontal bar
+        bar_row = 0 if orient == "down" else height - 1
+        for c in range(width):
+            cells.add((bar_row, c))
+        stem_col = width // 2
+        for r in range(height):
+            cells.add((r, stem_col))
+    else:
+        # vertical bar
+        bar_col = 0 if orient == "right" else width - 1
+        for r in range(height):
+            cells.add((r, bar_col))
+        stem_row = height // 2
+        for c in range(width):
+            cells.add((stem_row, c))
+    return tuple(sorted(cells))
+
+
+def _bar(height: int, width: int, side: str = "bottom") -> Shape:
+    """Single-cell-thick bar on one edge.
+    side ∈ {'top','bottom','left','right'}.
+    """
+    if side == "top":
+        return tuple((0, c) for c in range(width))
+    if side == "bottom":
+        return tuple((height - 1, c) for c in range(width))
+    if side == "left":
+        return tuple((r, 0) for r in range(height))
+    return tuple((r, width - 1) for r in range(height))
+
+
+def _step(height: int, width: int) -> Shape:
+    """Staircase shape — fills bottom-left triangle."""
+    cells = []
+    for r in range(height):
+        for c in range(width):
+            if c <= int(r * width / max(1, height)):
+                cells.append((r, c))
+    return tuple(cells)
+
+
 CLASSIC_WALL_SLOTS: tuple[ClassicSlot, ...] = (
-    (3, 3, 3, 4, (_solid_rect(3, 4), _offset(_solid_rect(3, 3), 0, 0), _offset(_solid_rect(2, 4), 0, 0))),
-    (3, 8, 3, 5, (_solid_rect(3, 5), _offset(_solid_rect(3, 4), 0, 1), _offset(_solid_rect(2, 5), 1, 0))),
-    (7, 3, 2, 4, (_solid_rect(2, 4), _offset(_solid_rect(2, 3), 0, 0), _offset(_solid_rect(1, 4), 0, 0))),
-    (7, 8, 4, 2, (_solid_rect(4, 2), _offset(_solid_rect(3, 2), 1, 0), _offset(_solid_rect(4, 1), 0, 0))),
-    (10, 1, 5, 6, (_solid_rect(5, 6), _offset(_solid_rect(4, 6), 0, 0), _offset(_solid_rect(5, 5), 0, 1))),
-    (10, 9, 4, 4, (_solid_rect(4, 4), _offset(_solid_rect(3, 4), 0, 0), _offset(_solid_rect(4, 3), 0, 0))),
-    (17, 1, 4, 6, (_solid_rect(4, 6), _offset(_solid_rect(4, 5), 0, 1), _offset(_solid_rect(3, 6), 1, 0))),
-    (17, 9, 4, 4, (_solid_rect(4, 4), _offset(_solid_rect(3, 4), 1, 0), _offset(_solid_rect(4, 3), 0, 0))),
-    (22, 3, 2, 4, (_solid_rect(2, 4), _offset(_solid_rect(2, 3), 0, 0), _offset(_solid_rect(1, 4), 1, 0))),
-    (22, 8, 2, 5, (_solid_rect(2, 5), _offset(_solid_rect(2, 4), 0, 1), _offset(_solid_rect(1, 5), 0, 0))),
-    (25, 1, 2, 6, (_solid_rect(2, 6), _offset(_solid_rect(2, 5), 0, 1), _offset(_solid_rect(1, 6), 0, 0))),
-    (25, 8, 2, 5, (_solid_rect(2, 5), _offset(_solid_rect(2, 4), 0, 0), _offset(_solid_rect(1, 5), 1, 0))),
-    (28, 3, 2, 10, (_solid_rect(2, 10), _offset(_solid_rect(2, 8), 0, 1), _offset(_solid_rect(1, 10), 0, 0))),
+    (3, 3, 3, 4, (
+        _solid_rect(3, 4),
+        _offset(_solid_rect(3, 3), 0, 0),
+        _offset(_solid_rect(2, 4), 0, 0),
+        _hollow_rect(3, 4),
+        _l_shape(3, 4, "bl"),
+        _t_shape(3, 4, "down"),
+        _offset(_solid_rect(2, 3), 0, 1),
+    )),
+    (3, 8, 3, 5, (
+        _solid_rect(3, 5),
+        _offset(_solid_rect(3, 4), 0, 1),
+        _offset(_solid_rect(2, 5), 1, 0),
+        _hollow_rect(3, 5),
+        _l_shape(3, 5, "br"),
+        _t_shape(3, 5, "up"),
+        _offset(_solid_rect(2, 3), 0, 1),
+    )),
+    (7, 3, 2, 4, (
+        _solid_rect(2, 4),
+        _offset(_solid_rect(2, 3), 0, 0),
+        _offset(_solid_rect(1, 4), 0, 0),
+        _bar(2, 4, "bottom"),
+        _offset(_solid_rect(2, 2), 0, 0),
+        _offset(_solid_rect(2, 2), 0, 2),
+        _t_shape(2, 4, "down"),
+    )),
+    (7, 8, 4, 2, (
+        _solid_rect(4, 2),
+        _offset(_solid_rect(3, 2), 1, 0),
+        _offset(_solid_rect(4, 1), 0, 0),
+        _offset(_solid_rect(4, 1), 0, 1),
+        _l_shape(4, 2, "tr"),
+        _bar(4, 2, "left"),
+        _offset(_solid_rect(2, 2), 1, 0),
+    )),
+    (10, 1, 5, 6, (
+        _solid_rect(5, 6),
+        _offset(_solid_rect(4, 6), 0, 0),
+        _offset(_solid_rect(5, 5), 0, 1),
+        _hollow_rect(5, 6),
+        _l_shape(5, 6, "tr"),
+        _t_shape(5, 6, "right"),
+        _offset(_solid_rect(3, 5), 1, 1),
+    )),
+    (10, 9, 4, 4, (
+        _solid_rect(4, 4),
+        _offset(_solid_rect(3, 4), 0, 0),
+        _offset(_solid_rect(4, 3), 0, 0),
+        _hollow_rect(4, 4),
+        _l_shape(4, 4, "tl"),
+        _t_shape(4, 4, "left"),
+        _offset(_solid_rect(2, 3), 1, 0),
+    )),
+    (17, 1, 4, 6, (
+        _solid_rect(4, 6),
+        _offset(_solid_rect(4, 5), 0, 1),
+        _offset(_solid_rect(3, 6), 1, 0),
+        _hollow_rect(4, 6),
+        _l_shape(4, 6, "br"),
+        _t_shape(4, 6, "right"),
+        _offset(_solid_rect(2, 5), 1, 1),
+    )),
+    (17, 9, 4, 4, (
+        _solid_rect(4, 4),
+        _offset(_solid_rect(3, 4), 1, 0),
+        _offset(_solid_rect(4, 3), 0, 0),
+        _hollow_rect(4, 4),
+        _l_shape(4, 4, "bl"),
+        _t_shape(4, 4, "left"),
+        _offset(_solid_rect(2, 3), 0, 0),
+    )),
+    (22, 3, 2, 4, (
+        _solid_rect(2, 4),
+        _offset(_solid_rect(2, 3), 0, 0),
+        _offset(_solid_rect(1, 4), 1, 0),
+        _bar(2, 4, "top"),
+        _offset(_solid_rect(2, 2), 0, 0),
+        _offset(_solid_rect(2, 2), 0, 2),
+        _t_shape(2, 4, "up"),
+    )),
+    (22, 8, 2, 5, (
+        _solid_rect(2, 5),
+        _offset(_solid_rect(2, 4), 0, 1),
+        _offset(_solid_rect(1, 5), 0, 0),
+        _bar(2, 5, "bottom"),
+        _offset(_solid_rect(2, 3), 0, 0),
+        _offset(_solid_rect(2, 3), 0, 2),
+        _t_shape(2, 5, "down"),
+    )),
+    (25, 1, 2, 6, (
+        _solid_rect(2, 6),
+        _offset(_solid_rect(2, 5), 0, 1),
+        _offset(_solid_rect(1, 6), 0, 0),
+        _bar(2, 6, "top"),
+        _offset(_solid_rect(2, 3), 0, 0),
+        _offset(_solid_rect(2, 3), 0, 3),
+        _l_shape(2, 6, "tl"),
+    )),
+    (25, 8, 2, 5, (
+        _solid_rect(2, 5),
+        _offset(_solid_rect(2, 4), 0, 0),
+        _offset(_solid_rect(1, 5), 1, 0),
+        _bar(2, 5, "bottom"),
+        _offset(_solid_rect(2, 3), 0, 0),
+        _offset(_solid_rect(2, 3), 0, 2),
+        _l_shape(2, 5, "br"),
+    )),
+    (28, 3, 2, 10, (
+        _solid_rect(2, 10),
+        _offset(_solid_rect(2, 8), 0, 1),
+        _offset(_solid_rect(1, 10), 0, 0),
+        _bar(2, 10, "top"),
+        _bar(2, 10, "bottom"),
+        _hollow_rect(2, 10),
+        _t_shape(2, 10, "down"),
+    )),
 )
 
 CLASSIC_ROW_BANDS: tuple[tuple[int, int], ...] = (

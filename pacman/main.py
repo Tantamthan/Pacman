@@ -54,6 +54,7 @@ from pacman.constants import (
 )
 from pacman.ghost import Ghost, get_targets
 from pacman.player import Player
+from pacman.player_ai import ExpectimaxAgent
 from pacman.utils import draw_board, draw_loading, draw_misc
 
 Level = list[list[int]]
@@ -249,7 +250,12 @@ def handle_ghost_collisions(
 
 
 def main() -> None:
-    """Run the Pac-Man game."""
+    """Run the Pac-Man game.
+
+    Pass --ai (or -a) on the command line to let the Expectimax agent
+    play instead of accepting keyboard input.
+    """
+    ai_enabled = any(arg in ("--ai", "-a") for arg in sys.argv[1:])
     pygame.init()
     screen = pygame.display.set_mode([WIDTH, HEIGHT])
     timer = pygame.time.Clock()
@@ -259,6 +265,9 @@ def main() -> None:
     player = Player()
     targets = [(player.x_pos, player.y_pos)] * GHOST_COUNT
     ghosts = create_ghosts(ghost_images, targets)
+    agent = ExpectimaxAgent(depth=2) if ai_enabled else None
+    if ai_enabled:
+        print("AI mode enabled (Expectimax, depth=2). Press SPACE to restart on game over.")
 
     counter = 0
     flicker = False
@@ -332,6 +341,19 @@ def main() -> None:
             if event.type == pygame.KEYUP:
                 handle_keyup(event, player)
 
+        # AI auto-restart after game over / win, so the agent keeps demoing.
+        if agent is not None and (game_over or game_won):
+            level = generate_level(screen, font)
+            reset_game(player, ghosts)
+            player.score = 0
+            player.lives = PLAYER_LIVES
+            startup_counter = 0
+            game_over = False
+            game_won = False
+            agent._cached_action = None
+
+        if agent is not None and moving and not game_over and not game_won:
+            player.direction_command = agent.get_action(player, ghosts, level)
         apply_direction_command(player)
         player.wrap_tunnel()
 
