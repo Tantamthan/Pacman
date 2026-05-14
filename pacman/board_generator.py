@@ -25,12 +25,15 @@ from pacman.constants import (
     TOP_LEFT_WALL_TILE,
     TOP_RIGHT_WALL_TILE,
     VERTICAL_WALL_TILE,
+    VOID_TILE,
     WALL_TILE,
 )
 
 Level = list[list[int]]
 Chromosome = list[list[int]]
 Cell = tuple[int, int]
+Shape = tuple[Cell, ...]
+ClassicSlot = tuple[int, int, int, int, tuple[Shape, ...]]
 
 HALF_COLS = BOARD_COLS // 2
 PLAYER_CELL: Cell = (
@@ -52,7 +55,7 @@ SPINE_ROWS = (6, 11, 15, 20, 24)
 GHOST_BYPASS_ROWS = range(12, 18)
 GHOST_BYPASS_COLS = (11, 18)
 
-TARGET_PATH_DENSITY = 0.55 #tỉ lệ đường đi
+TARGET_PATH_DENSITY = 0.38
 DEFAULT_POPULATION_SIZE = 20
 DEFAULT_GENERATIONS = 5
 TOURNAMENT_SIZE = 4
@@ -68,6 +71,41 @@ LAST_GENERATION_INFO: dict[str, float | int | bool | None] = {
     "playable": False,
     "dead_ends": None,
 }
+
+
+def _solid_rect(height: int, width: int) -> Shape:
+    """Return a filled rectangular wall block."""
+    return tuple((row, col) for row in range(height) for col in range(width))
+
+
+def _offset(shape: Shape, row_offset: int, col_offset: int) -> Shape:
+    """Move a relative wall shape inside its slot."""
+    return tuple((row + row_offset, col + col_offset) for row, col in shape)
+
+
+CLASSIC_WALL_SLOTS: tuple[ClassicSlot, ...] = (
+    (3, 3, 3, 4, (_solid_rect(3, 4), _offset(_solid_rect(3, 3), 0, 0), _offset(_solid_rect(2, 4), 0, 0))),
+    (3, 8, 3, 5, (_solid_rect(3, 5), _offset(_solid_rect(3, 4), 0, 1), _offset(_solid_rect(2, 5), 1, 0))),
+    (7, 3, 2, 4, (_solid_rect(2, 4), _offset(_solid_rect(2, 3), 0, 0), _offset(_solid_rect(1, 4), 0, 0))),
+    (7, 8, 4, 2, (_solid_rect(4, 2), _offset(_solid_rect(3, 2), 1, 0), _offset(_solid_rect(4, 1), 0, 0))),
+    (10, 1, 5, 6, (_solid_rect(5, 6), _offset(_solid_rect(4, 6), 0, 0), _offset(_solid_rect(5, 5), 0, 1))),
+    (10, 9, 4, 4, (_solid_rect(4, 4), _offset(_solid_rect(3, 4), 0, 0), _offset(_solid_rect(4, 3), 0, 0))),
+    (17, 1, 4, 6, (_solid_rect(4, 6), _offset(_solid_rect(4, 5), 0, 1), _offset(_solid_rect(3, 6), 1, 0))),
+    (17, 9, 4, 4, (_solid_rect(4, 4), _offset(_solid_rect(3, 4), 1, 0), _offset(_solid_rect(4, 3), 0, 0))),
+    (22, 3, 2, 4, (_solid_rect(2, 4), _offset(_solid_rect(2, 3), 0, 0), _offset(_solid_rect(1, 4), 1, 0))),
+    (22, 8, 2, 5, (_solid_rect(2, 5), _offset(_solid_rect(2, 4), 0, 1), _offset(_solid_rect(1, 5), 0, 0))),
+    (25, 1, 2, 6, (_solid_rect(2, 6), _offset(_solid_rect(2, 5), 0, 1), _offset(_solid_rect(1, 6), 0, 0))),
+    (25, 8, 2, 5, (_solid_rect(2, 5), _offset(_solid_rect(2, 4), 0, 0), _offset(_solid_rect(1, 5), 1, 0))),
+    (28, 3, 2, 10, (_solid_rect(2, 10), _offset(_solid_rect(2, 8), 0, 1), _offset(_solid_rect(1, 10), 0, 0))),
+)
+
+CLASSIC_ROW_BANDS: tuple[tuple[int, int], ...] = (
+    (0, 7),
+    (7, 13),
+    (13, 18),
+    (18, 25),
+    (25, BOARD_ROWS),
+)
 
 
 def generate_board(
@@ -135,6 +173,7 @@ def decode_chromosome(chromosome: Chromosome) -> Level:
     """Decode a half-board chromosome into a full Pac-Man tile map."""
     logical = _chromosome_to_logical(chromosome)
     _repair_connectivity(logical)
+    _remove_dead_end_paths(logical)
     board = _logical_to_tiles(logical)
     _place_power_pellets(board)
     return board
@@ -164,7 +203,7 @@ def score_board(board: Level) -> float:
         score -= 80_000
     score -= 5_000 * max(0, regions - 1)
     score -= 100 * unreachable_count
-    score -= 400 * max(0, dead_ends - 3)
+    score -= 900 * dead_ends
     score -= 80 * abs(path_density - TARGET_PATH_DENSITY) * 100
     score += 40 * min(junctions, 35)
     score += 20 * min(corridor_length, 12)
@@ -179,7 +218,7 @@ def is_playable(board: Level) -> bool:
     """Return whether the board satisfies hard gameplay constraints."""
     if not _has_valid_shape(board):
         return False
-    if any(tile not in range(10) for row in board for tile in row):
+    if any(tile not in range(VOID_TILE + 1) for row in board for tile in row):
         return False
     if board[13][14] != GATE_TILE or board[13][15] != GATE_TILE:
         return False
@@ -202,48 +241,58 @@ def is_playable(board: Level) -> bool:
     ghost_reachable, _ = _bfs_board(board, PLAYER_CELL, include_gate=True)
     pellets = _pellet_cells(board)
     public_walkable = _public_walkable_cells(board)
+    if _dead_end_count(board, reachable) > 0:
+        return False
     return bool(pellets) and public_walkable.issubset(reachable) and GHOST_EXIT_CELL in ghost_reachable
 
 
 def _random_chromosome(rng: random.Random) -> Chromosome:
-    """Build a left-half chromosome from large hollow frames placed in safe row zones.
-
-    The map is divided into 5 zones whose borders never fall on spine rows (6,11,15,20,24).
-    Four column slots give up to 20 frame slots per half; ~88% are activated for dense coverage.
-    Adjacent frames share wall edges and merge into connected rectangular structures.
-    """
-    chromosome = [[0] * HALF_COLS for _ in range(BOARD_ROWS)]
-
-    # (top_row, h_min, h_max) — frame rows [top, top+h], spine row below is the corridor
-    row_zones = [
-        (1,  4, 5),   # rows 1-5:  corridor at spine-row 6
-        (7,  3, 4),   # rows 7-10: corridor at spine-row 11
-        (18, 1, 2),   # rows 18-20: row 17 kept open, corridor at spine-row 20
-        (21, 2, 3),   # rows 21-23: corridor at spine-row 24
-        (26, 4, 5),   # rows 26-30: corridor at rows 31-32
-    ]
-    # Four column positions for denser coverage across the 15-column half
-    col_starts = [1, 4, 8, 11]
-
-    for top, h_min, h_max in row_zones:
-        for left in col_starts:
-            if rng.random() < 0.95:
-                h = rng.randint(h_min, h_max)
-                max_w = max(3, min(5, HALF_COLS - 2 - left))
-                w = rng.randint(3, max_w)
-                for r in range(top, min(top + h + 1, BOARD_ROWS - 1)):
-                    for c in range(left, min(left + w + 1, HALF_COLS - 1)):
-                        if r == top or r == top + h or c == left or c == left + w:
-                            if _fixed_logical_value(r, c) is None:
-                                chromosome[r][c] = 1
-
-    for r in range(BOARD_ROWS):
-        for c in range(HALF_COLS):
-            fixed = _fixed_logical_value(r, c)
-            if fixed is not None:
-                chromosome[r][c] = fixed
-
+    """Build a classic Pac-Man style half-board from block slots."""
+    chromosome = _classic_template_chromosome()
+    for _ in range(rng.randint(2, 5)):
+        _apply_classic_slot_variant(chromosome, rng)
+    _apply_fixed_mask_to_chromosome(chromosome)
     return chromosome
+
+
+def _classic_template_chromosome() -> Chromosome:
+    """Return the original maze's route layout, with decorative voids blocked."""
+    route_cells, _ = _bfs_board(boards, PLAYER_CELL, include_gate=True)
+    chromosome = [[0] * HALF_COLS for _ in range(BOARD_ROWS)]
+    for row in range(BOARD_ROWS):
+        for col in range(HALF_COLS):
+            fixed = _fixed_logical_value(row, col)
+            if fixed is not None:
+                chromosome[row][col] = fixed
+            elif (row, col) in route_cells and _is_walkable_tile(boards[row][col], include_gate=True):
+                chromosome[row][col] = 0
+            else:
+                chromosome[row][col] = 1
+    return chromosome
+
+
+def _apply_classic_slot_variant(chromosome: Chromosome, rng: random.Random) -> None:
+    """Replace one classic wall slot with a shape-level variant."""
+    top, left, height, width, variants = rng.choice(CLASSIC_WALL_SLOTS)
+    for row in range(top, min(top + height, BOARD_ROWS)):
+        for col in range(left, min(left + width, HALF_COLS)):
+            if _fixed_logical_value(row, col) is None:
+                chromosome[row][col] = 0
+
+    for row_delta, col_delta in rng.choice(variants):
+        row = top + row_delta
+        col = left + col_delta
+        if 0 <= row < BOARD_ROWS and 0 <= col < HALF_COLS and _fixed_logical_value(row, col) is None:
+            chromosome[row][col] = 1
+
+
+def _apply_fixed_mask_to_chromosome(chromosome: Chromosome) -> None:
+    """Restore immutable cells in a left-half chromosome."""
+    for row in range(BOARD_ROWS):
+        for col in range(HALF_COLS):
+            fixed = _fixed_logical_value(row, col)
+            if fixed is not None:
+                chromosome[row][col] = fixed
 
 
 def _clone_chromosome(chromosome: Chromosome) -> Chromosome:
@@ -258,52 +307,22 @@ def _select_parent(scored: list[tuple[float, Chromosome]], rng: random.Random) -
 
 
 def _uniform_crossover(parent_a: Chromosome, parent_b: Chromosome, rng: random.Random) -> Chromosome:
-    """Combine two parents by choosing each gene independently."""
-    child = []
-    for row in range(BOARD_ROWS):
-        genes = []
-        for col in range(HALF_COLS):
-            genes.append(parent_a[row][col] if rng.random() < 0.5 else parent_b[row][col])
-        child.append(genes)
+    """Combine two parents by whole row bands so wall blocks stay coherent."""
+    child = [[0] * HALF_COLS for _ in range(BOARD_ROWS)]
+    for start, stop in CLASSIC_ROW_BANDS:
+        source = parent_a if rng.random() < 0.5 else parent_b
+        for row in range(start, stop):
+            child[row] = source[row][:]
     return child
 
 
 def _mutate(chromosome: Chromosome, rng: random.Random) -> None:
-    """Toggle a random zone-slot frame (add or erase) and carve a 2×2 cluster."""
-    row_zones = [
-        (1,  3, 5),
-        (7,  2, 4),
-        (18, 1, 2),
-        (21, 2, 3),
-        (26, 3, 5),
-    ]
-    col_starts = [1, 4, 8, 11]
-
+    """Mutate one or two whole wall slots, not random single cells."""
     if rng.random() < MUTATION_RATE:
-        top, h_min, h_max = rng.choice(row_zones)
-        left = rng.choice(col_starts)
-        h = rng.randint(h_min, h_max)
-        max_w = max(2, min(5, HALF_COLS - 2 - left))
-        w = rng.randint(2, max_w)
-        corner_r = min(top, BOARD_ROWS - 2)
-        corner_c = min(left, HALF_COLS - 2)
-        new_val = 0 if chromosome[corner_r][corner_c] == 1 else 1
-        for r in range(top, min(top + h + 1, BOARD_ROWS - 1)):
-            for c in range(left, min(left + w + 1, HALF_COLS - 1)):
-                if r == top or r == top + h or c == left or c == left + w:
-                    if _fixed_logical_value(r, c) is None:
-                        chromosome[r][c] = new_val
-
-    for _ in range(2):
-        row = rng.randrange(1, BOARD_ROWS - 1)
-        col = rng.randrange(1, HALF_COLS)
-        target = 0 if rng.random() < TARGET_PATH_DENSITY else 1
-        for dr in range(2):
-            for dc in range(2):
-                rr = row + dr
-                cc = col + dc
-                if rr < BOARD_ROWS and cc < HALF_COLS and _fixed_logical_value(rr, cc) is None:
-                    chromosome[rr][cc] = target
+        _apply_classic_slot_variant(chromosome, rng)
+    if rng.random() < MUTATION_RATE * 0.5:
+        _apply_classic_slot_variant(chromosome, rng)
+    _apply_fixed_mask_to_chromosome(chromosome)
 
 
 def _chromosome_to_logical(chromosome: Chromosome) -> list[list[int]]:
@@ -332,10 +351,6 @@ def _fixed_logical_value(row: int, col: int) -> int | None:
         return 1
     if col == 0 or col == BOARD_COLS - 1:
         return 0 if row == TUNNEL_ROW else 1
-    if row in SPINE_ROWS:
-        return 0
-    if col in SPINE_COLS:
-        return 0
     if row == TUNNEL_ROW and (col in TUNNEL_LEFT_COLS or col in TUNNEL_RIGHT_COLS):
         return 0
     if row in GHOST_HOUSE_ROWS and col in GHOST_HOUSE_COLS:
@@ -380,6 +395,26 @@ def _repair_connectivity(logical: list[list[int]]) -> None:
         _apply_fixed_mask(logical)
 
 
+def _remove_dead_end_paths(logical: list[list[int]]) -> None:
+    """Prune mutable cul-de-sacs into blocked wall interiors."""
+    changed = True
+    while changed:
+        changed = False
+        for row in range(1, BOARD_ROWS - 1):
+            for col in range(BOARD_COLS):
+                if logical[row][col] != 0 or _fixed_logical_value(row, col) is not None:
+                    continue
+                if _logical_walkable_degree(logical, row, col) <= 1:
+                    logical[row][col] = 1
+                    changed = True
+        _apply_fixed_mask(logical)
+
+
+def _logical_walkable_degree(logical: list[list[int]], row: int, col: int) -> int:
+    """Return the number of neighboring path cells in the logical maze."""
+    return sum(1 for nr, nc in _neighbors(row, col) if logical[nr][nc] == 0)
+
+
 def _shortest_repair_path(
     logical: list[list[int]],
     reachable: set[Cell],
@@ -421,6 +456,8 @@ def _logical_to_tiles(logical: list[list[int]]) -> Level:
         for col in range(BOARD_COLS):
             if logical[row][col] == 0:
                 board[row][col] = DOT_TILE
+            elif _is_wall_void(logical, row, col):
+                board[row][col] = VOID_TILE
             else:
                 board[row][col] = _wall_tile(logical, row, col)
 
@@ -461,19 +498,37 @@ def _wall_tile(logical: list[list[int]], row: int, col: int) -> int:
     down = _is_logical_wall(logical, row + 1, col)
     left = _is_logical_wall(logical, row, col - 1)
     right = _is_logical_wall(logical, row, col + 1)
-    if down and left and not up and not right:
-        return TOP_RIGHT_WALL_TILE
     if down and right and not up and not left:
         return TOP_LEFT_WALL_TILE
+    if down and left and not up and not right:
+        return TOP_RIGHT_WALL_TILE
     if up and right and not down and not left:
         return BOTTOM_LEFT_WALL_TILE
     if up and left and not down and not right:
         return BOTTOM_RIGHT_WALL_TILE
+    if not left and right and (up or down):
+        return VERTICAL_WALL_TILE
+    if not right and left and (up or down):
+        return VERTICAL_WALL_TILE
+    if not up and down and (left or right):
+        return HORIZONTAL_WALL_TILE
+    if not down and up and (left or right):
+        return HORIZONTAL_WALL_TILE
     if left or right:
         return HORIZONTAL_WALL_TILE
     if up or down:
         return VERTICAL_WALL_TILE
     return WALL_TILE
+
+
+def _is_wall_void(logical: list[list[int]], row: int, col: int) -> bool:
+    """Return whether a wall cell is a blocked black interior."""
+    return (
+        _is_logical_wall(logical, row - 1, col)
+        and _is_logical_wall(logical, row + 1, col)
+        and _is_logical_wall(logical, row, col - 1)
+        and _is_logical_wall(logical, row, col + 1)
+    )
 
 
 def _is_logical_wall(logical: list[list[int]], row: int, col: int) -> bool:
@@ -483,7 +538,7 @@ def _is_logical_wall(logical: list[list[int]], row: int, col: int) -> bool:
 
 def _place_power_pellets(board: Level) -> None:
     """Place four reachable power pellets in broad board quadrants."""
-    reachable, distances = _bfs_board(board, PLAYER_CELL)
+    reachable, _ = _bfs_board(board, PLAYER_CELL)
     candidates = [
         cell
         for cell in reachable
@@ -492,19 +547,22 @@ def _place_power_pellets(board: Level) -> None:
         and cell[0] != TUNNEL_ROW
     ]
     quadrants = [
-        lambda cell: cell[0] < 14 and cell[1] < 13,  # trên-trái, xa góc
-        lambda cell: cell[0] < 14 and cell[1] >= 17,  # trên-phải
-        lambda cell: cell[0] >= 18 and cell[1] < 13,  # dưới-trái
-        lambda cell: cell[0] >= 18 and cell[1] >= 17,  # dưới-phải
+        (lambda cell: cell[0] < 14 and cell[1] < 13, (2, 2)),
+        (lambda cell: cell[0] < 14 and cell[1] >= 17, (2, BOARD_COLS - 3)),
+        (lambda cell: cell[0] >= 18 and cell[1] < 13, (BOARD_ROWS - 3, 2)),
+        (lambda cell: cell[0] >= 18 and cell[1] >= 17, (BOARD_ROWS - 3, BOARD_COLS - 3)),
     ]
     chosen: list[Cell] = []
-    for quadrant in quadrants:
+    for quadrant, corner in quadrants:
         quadrant_cells = [cell for cell in candidates if quadrant(cell)]
         if quadrant_cells:
-            chosen.append(max(quadrant_cells, key=lambda cell: distances.get(cell, 0)))
+            chosen.append(
+                min(quadrant_cells, key=lambda cell: abs(cell[0] - corner[0]) + abs(cell[1] - corner[1]))
+            )
     if len(chosen) < 4:
         remaining = [cell for cell in candidates if cell not in chosen]
-        remaining.sort(key=lambda cell: distances.get(cell, 0), reverse=True)
+        corners = ((2, 2), (2, BOARD_COLS - 3), (BOARD_ROWS - 3, 2), (BOARD_ROWS - 3, BOARD_COLS - 3))
+        remaining.sort(key=lambda cell: min(abs(cell[0] - row) + abs(cell[1] - col) for row, col in corners))
         chosen.extend(remaining[: 4 - len(chosen)])
     for row, col in chosen[:4]:
         board[row][col] = POWER_DOT_TILE
@@ -608,6 +666,10 @@ def _neighbors(row: int, col: int) -> list[Cell]:
         nc = col + dc
         if 0 <= nr < BOARD_ROWS and 0 <= nc < BOARD_COLS:
             cells.append((nr, nc))
+    if row == TUNNEL_ROW and col == 0:
+        cells.append((row, BOARD_COLS - 1))
+    elif row == TUNNEL_ROW and col == BOARD_COLS - 1:
+        cells.append((row, 0))
     return cells
 
 
