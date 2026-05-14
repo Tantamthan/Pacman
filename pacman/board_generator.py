@@ -57,7 +57,7 @@ DEFAULT_POPULATION_SIZE = 20
 DEFAULT_GENERATIONS = 5
 TOURNAMENT_SIZE = 4
 MUTATION_RATE = 0.25
-CROSSOVER_RATE = 0.75
+CROSSOVER_RATE = 0.9
 MIN_GHOST_DISTANCE = 12
 MIN_EARLY_STOP_GENERATION = 3
 EARLY_STOP_SCORE = -7_500
@@ -216,21 +216,21 @@ def _random_chromosome(rng: random.Random) -> Chromosome:
 
     # (top_row, h_min, h_max) — frame rows [top, top+h], spine row below is the corridor
     row_zones = [
-        (1,  3, 5),   # rows 1-5:  corridor at spine-row 6
-        (7,  2, 4),   # rows 7-10: corridor at spine-row 11
+        (1,  4, 5),   # rows 1-5:  corridor at spine-row 6
+        (7,  3, 4),   # rows 7-10: corridor at spine-row 11
         (18, 1, 2),   # rows 18-20: row 17 kept open, corridor at spine-row 20
         (21, 2, 3),   # rows 21-23: corridor at spine-row 24
-        (26, 3, 5),   # rows 26-30: corridor at rows 31-32
+        (26, 4, 5),   # rows 26-30: corridor at rows 31-32
     ]
     # Four column positions for denser coverage across the 15-column half
     col_starts = [1, 4, 8, 11]
 
     for top, h_min, h_max in row_zones:
         for left in col_starts:
-            if rng.random() < 0.88:
+            if rng.random() < 0.95:
                 h = rng.randint(h_min, h_max)
-                max_w = max(2, min(5, HALF_COLS - 2 - left))
-                w = rng.randint(2, max_w)
+                max_w = max(3, min(5, HALF_COLS - 2 - left))
+                w = rng.randint(3, max_w)
                 for r in range(top, min(top + h + 1, BOARD_ROWS - 1)):
                     for c in range(left, min(left + w + 1, HALF_COLS - 1)):
                         if r == top or r == top + h or c == left or c == left + w:
