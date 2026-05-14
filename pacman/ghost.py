@@ -195,257 +195,182 @@ class Ghost:
         self._stuck_frames = 0
 
     def move_clyde(self) -> tuple[int, int, int]:
-        """Move using Clyde's original pursuit behavior."""
+        """Move using Clyde's original pursuit behavior (aggressive sideways turns)."""
         if self.direction == RIGHT:
-            if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                self.x_pos += self.speed
-            elif not self.turns[RIGHT]:
-                if self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-            elif self.turns[RIGHT]:
-                if self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                if self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                else:
-                    self.x_pos += self.speed
+            self._pursue_right()
         elif self.direction == LEFT:
-            if self.target[1] > self.y_pos and self.turns[DOWN]:
-                self.direction = DOWN
-            elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                self.x_pos -= self.speed
-            elif not self.turns[LEFT]:
-                if self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-            elif self.turns[LEFT]:
-                if self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                if self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                else:
-                    self.x_pos -= self.speed
+            self._pursue_left()
         elif self.direction == UP:
-            if self.target[0] < self.x_pos and self.turns[LEFT]:
-                self.direction = LEFT
-                self.x_pos -= self.speed
-            elif self.target[1] < self.y_pos and self.turns[UP]:
-                self.direction = UP
-                self.y_pos -= self.speed
-            elif not self.turns[UP]:
-                if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-            elif self.turns[UP]:
-                if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                else:
-                    self.y_pos -= self.speed
+            self._pursue_up_aggressive()
         elif self.direction == DOWN:
-            if self.target[1] > self.y_pos and self.turns[DOWN]:
-                self.y_pos += self.speed
-            elif not self.turns[DOWN]:
-                if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-            elif self.turns[DOWN]:
-                if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                else:
-                    self.y_pos += self.speed
+            self._pursue_down_aggressive()
         self._wrap_tunnel()
         return self.x_pos, self.y_pos, self.direction
 
     def move_inky(self) -> tuple[int, int, int]:
-        """Run the original Inky branch logic."""
+        """Move using Inky's original pursuit behavior (straight-through vertical)."""
         if self.direction == RIGHT:
-            if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                self.x_pos += self.speed
-            elif not self.turns[RIGHT]:
-                if self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-            elif self.turns[RIGHT]:
-                if self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                if self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                else:
-                    self.x_pos += self.speed
+            self._pursue_right()
         elif self.direction == LEFT:
+            self._pursue_left()
+        elif self.direction == UP:
+            self._pursue_up_simple()
+        elif self.direction == DOWN:
+            self._pursue_down_simple()
+        self._wrap_tunnel()
+        return self.x_pos, self.y_pos, self.direction
+
+    def _pursue_right(self) -> None:
+        """RIGHT-direction pursuit. Identical for Inky and Clyde."""
+        if self.target[0] > self.x_pos and self.turns[RIGHT]:
+            self.x_pos += self.speed
+        elif not self.turns[RIGHT]:
             if self.target[1] > self.y_pos and self.turns[DOWN]:
                 self.direction = DOWN
+                self.y_pos += self.speed
+            elif self.target[1] < self.y_pos and self.turns[UP]:
+                self.direction = UP
+                self.y_pos -= self.speed
             elif self.target[0] < self.x_pos and self.turns[LEFT]:
+                self.direction = LEFT
                 self.x_pos -= self.speed
-            elif not self.turns[LEFT]:
-                if self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
+            elif self.turns[DOWN]:
+                self.direction = DOWN
+                self.y_pos += self.speed
+            elif self.turns[UP]:
+                self.direction = UP
+                self.y_pos -= self.speed
             elif self.turns[LEFT]:
-                if self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                if self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                else:
-                    self.x_pos -= self.speed
-        elif self.direction == UP:
+                self.direction = LEFT
+                self.x_pos -= self.speed
+        elif self.turns[RIGHT]:
+            if self.target[1] > self.y_pos and self.turns[DOWN]:
+                self.direction = DOWN
+                self.y_pos += self.speed
             if self.target[1] < self.y_pos and self.turns[UP]:
                 self.direction = UP
                 self.y_pos -= self.speed
-            elif not self.turns[UP]:
-                if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-            elif self.turns[UP]:
-                self.y_pos -= self.speed
-        elif self.direction == DOWN:
+            else:
+                self.x_pos += self.speed
+
+    def _pursue_left(self) -> None:
+        """LEFT-direction pursuit. Identical for Inky and Clyde."""
+        if self.target[1] > self.y_pos and self.turns[DOWN]:
+            self.direction = DOWN
+        elif self.target[0] < self.x_pos and self.turns[LEFT]:
+            self.x_pos -= self.speed
+        elif not self.turns[LEFT]:
             if self.target[1] > self.y_pos and self.turns[DOWN]:
+                self.direction = DOWN
                 self.y_pos += self.speed
-            elif not self.turns[DOWN]:
-                if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
+            elif self.target[1] < self.y_pos and self.turns[UP]:
+                self.direction = UP
+                self.y_pos -= self.speed
+            elif self.target[0] > self.x_pos and self.turns[RIGHT]:
+                self.direction = RIGHT
+                self.x_pos += self.speed
             elif self.turns[DOWN]:
+                self.direction = DOWN
                 self.y_pos += self.speed
-        self._wrap_tunnel()
-        return self.x_pos, self.y_pos, self.direction
+            elif self.turns[UP]:
+                self.direction = UP
+                self.y_pos -= self.speed
+            elif self.turns[RIGHT]:
+                self.direction = RIGHT
+                self.x_pos += self.speed
+        elif self.turns[LEFT]:
+            if self.target[1] > self.y_pos and self.turns[DOWN]:
+                self.direction = DOWN
+                self.y_pos += self.speed
+            if self.target[1] < self.y_pos and self.turns[UP]:
+                self.direction = UP
+                self.y_pos -= self.speed
+            else:
+                self.x_pos -= self.speed
+
+    def _pursue_up_aggressive(self) -> None:
+        """Clyde's UP: prefer LEFT toward target, take sideways turns while ascending."""
+        if self.target[0] < self.x_pos and self.turns[LEFT]:
+            self.direction = LEFT
+            self.x_pos -= self.speed
+        elif self.target[1] < self.y_pos and self.turns[UP]:
+            self.y_pos -= self.speed
+        elif not self.turns[UP]:
+            self._vertical_fallback(up=True)
+        elif self.turns[UP]:
+            if self.target[0] > self.x_pos and self.turns[RIGHT]:
+                self.direction = RIGHT
+                self.x_pos += self.speed
+            elif self.target[0] < self.x_pos and self.turns[LEFT]:
+                self.direction = LEFT
+                self.x_pos -= self.speed
+            else:
+                self.y_pos -= self.speed
+
+    def _pursue_up_simple(self) -> None:
+        """Inky's UP: just go up if possible, else fallback."""
+        if self.target[1] < self.y_pos and self.turns[UP]:
+            self.y_pos -= self.speed
+        elif not self.turns[UP]:
+            self._vertical_fallback(up=True)
+        elif self.turns[UP]:
+            self.y_pos -= self.speed
+
+    def _pursue_down_aggressive(self) -> None:
+        """Clyde's DOWN: take sideways turns while descending."""
+        if self.target[1] > self.y_pos and self.turns[DOWN]:
+            self.y_pos += self.speed
+        elif not self.turns[DOWN]:
+            self._vertical_fallback(up=False)
+        elif self.turns[DOWN]:
+            if self.target[0] > self.x_pos and self.turns[RIGHT]:
+                self.direction = RIGHT
+                self.x_pos += self.speed
+            elif self.target[0] < self.x_pos and self.turns[LEFT]:
+                self.direction = LEFT
+                self.x_pos -= self.speed
+            else:
+                self.y_pos += self.speed
+
+    def _pursue_down_simple(self) -> None:
+        """Inky's DOWN: just go down if possible, else fallback."""
+        if self.target[1] > self.y_pos and self.turns[DOWN]:
+            self.y_pos += self.speed
+        elif not self.turns[DOWN]:
+            self._vertical_fallback(up=False)
+        elif self.turns[DOWN]:
+            self.y_pos += self.speed
+
+    def _vertical_fallback(self, up: bool) -> None:
+        """Shared fallback chain when blocked while moving UP or DOWN."""
+        opposite_y = DOWN if up else UP
+        opposite_sign = 1 if up else -1  # opposite direction y-delta sign
+        if self.target[0] > self.x_pos and self.turns[RIGHT]:
+            self.direction = RIGHT
+            self.x_pos += self.speed
+        elif self.target[0] < self.x_pos and self.turns[LEFT]:
+            self.direction = LEFT
+            self.x_pos -= self.speed
+        elif (self.target[1] > self.y_pos if up else self.target[1] < self.y_pos) and self.turns[opposite_y]:
+            self.direction = opposite_y
+            self.y_pos += opposite_sign * self.speed
+        elif self.turns[LEFT if up else UP]:
+            if up:
+                self.direction = LEFT
+                self.x_pos -= self.speed
+            else:
+                self.direction = UP
+                self.y_pos -= self.speed
+        elif self.turns[DOWN if up else LEFT]:
+            if up:
+                self.direction = DOWN
+                self.y_pos += self.speed
+            else:
+                self.direction = LEFT
+                self.x_pos -= self.speed
+        elif self.turns[RIGHT]:
+            self.direction = RIGHT
+            self.x_pos += self.speed
 
     def _wrap_tunnel(self) -> None:
         """Apply the original left-side ghost tunnel wrap."""
