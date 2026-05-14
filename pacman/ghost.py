@@ -88,6 +88,8 @@ class Ghost:
         self._path_mode: tuple[bool, bool] = (self.dead, self.in_box)
         self._patrol_index = self.id * PATROL_INDEX_OFFSET
         self.is_patrolling = False
+        self._last_pos: tuple[int, int] = (self.x_pos, self.y_pos)
+        self._stuck_frames: int = 0
 
     @property
     def center_x(self) -> int:
@@ -185,6 +187,8 @@ class Ghost:
         self._patrol_index = self.id * PATROL_INDEX_OFFSET
         self.is_patrolling = False
         self._clear_path()
+        self._last_pos = (self.x_pos, self.y_pos)
+        self._stuck_frames = 0
 
     def move_clyde(self) -> tuple[int, int, int]:
         """Move using Clyde's original pursuit behavior."""
@@ -682,7 +686,8 @@ class Ghost:
         curr_cell = self._cell_from_point((self.center_x, self.center_y))
         mode = (self.dead, self.in_box)
 
-        if mode != self._path_mode or target_cell != self._path_target:
+        path_changed = mode != self._path_mode or target_cell != self._path_target
+        if path_changed:
             self._path = self._astar(level, curr_cell, target_cell)
             self._path_target = target_cell
             self._path_mode = mode
@@ -693,13 +698,20 @@ class Ghost:
                 self._path_target = target_cell
                 self._path_mode = mode
 
+        # Always recompute when path empty but not yet at goal — prevents permanent stalling.
+        if not self._path and curr_cell != target_cell:
+            self._path = self._astar(level, curr_cell, target_cell)
+
         if not self._path and curr_cell == target_cell:
             target_x, target_y = self._target_point_in_cell(target, target_cell)
             self._move_toward_pixel(target_x, target_y)
+            self._handle_stuck(level, curr_cell, target_cell)
             self._wrap_tunnel()
             return
 
         if not self._path:
+            self._handle_stuck(level, curr_cell, target_cell)
+            self._wrap_tunnel()
             return
 
         next_cell = self._path[0]
@@ -710,7 +722,29 @@ class Ghost:
         else:
             self._move_toward_pixel(next_x, next_y)
 
+        self._handle_stuck(level, curr_cell, target_cell)
         self._wrap_tunnel()
+
+    def _handle_stuck(self, level: Level, curr_cell: Cell, target_cell: Cell) -> None:
+        """Detect zero-movement frames and force a fresh path / sideways step."""
+        if (self.x_pos, self.y_pos) != self._last_pos:
+            self._stuck_frames = 0
+            self._last_pos = (self.x_pos, self.y_pos)
+            return
+        self._stuck_frames += 1
+        if self._stuck_frames < 6:
+            return
+        # Stuck too long — drop cached path, try any passable neighbor toward target.
+        self._clear_path()
+        neighbors = self._neighbor_cells(level, curr_cell)
+        if not neighbors:
+            self._stuck_frames = 0
+            return
+        neighbors.sort(key=lambda cell: self._heuristic(cell, target_cell))
+        chosen = neighbors[0]
+        self._path = [chosen]
+        self._path_target = target_cell
+        self._stuck_frames = 0
 
     def _astar(self, level: Level, start: Cell, goal: Cell) -> list[Cell]:
         """Return the shortest path from start to goal using Manhattan A*."""
