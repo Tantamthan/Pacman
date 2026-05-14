@@ -90,6 +90,10 @@ class Ghost:
         self.is_patrolling = False
         self._last_pos: tuple[int, int] = (self.x_pos, self.y_pos)
         self._stuck_frames: int = 0
+        # Patrol reachability cache — recomputed when level identity or gate access changes.
+        self._patrol_cache_key: tuple[int, bool] | None = None
+        self._patrol_reachable: set[Cell] = set()
+        self._patrol_cells_cache: list[Cell] = []
 
     @property
     def center_x(self) -> int:
@@ -325,117 +329,7 @@ class Ghost:
         self._wrap_tunnel()
         return self.x_pos, self.y_pos, self.direction
 
-    def move_blinky(self) -> tuple[int, int, int]:
-        """Move using Blinky's original pursuit behavior."""
-        if self.direction == RIGHT:
-            if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                self.x_pos += self.speed
-            elif not self.turns[RIGHT]:
-                if self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-            elif self.turns[RIGHT]:
-                self.x_pos += self.speed
-        elif self.direction == LEFT:
-            if self.target[0] < self.x_pos and self.turns[LEFT]:
-                self.x_pos -= self.speed
-            elif not self.turns[LEFT]:
-                if self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-            elif self.turns[LEFT]:
-                self.x_pos -= self.speed
-        elif self.direction == UP:
-            if self.target[1] < self.y_pos and self.turns[UP]:
-                self.direction = UP
-                self.y_pos -= self.speed
-            elif not self.turns[UP]:
-                if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-            elif self.turns[UP]:
-                self.y_pos -= self.speed
-        elif self.direction == DOWN:
-            if self.target[1] > self.y_pos and self.turns[DOWN]:
-                self.y_pos += self.speed
-            elif not self.turns[DOWN]:
-                if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-            elif self.turns[DOWN]:
-                self.y_pos += self.speed
-        self._wrap_tunnel()
-        return self.x_pos, self.y_pos, self.direction
-
     def move_inky(self) -> tuple[int, int, int]:
-        """Move using Inky's original pursuit behavior."""
-        return self._move_inky_like()
-
-    def move_pinky(self) -> tuple[int, int, int]:
-        """Move using Pinky's original pursuit behavior."""
-        return self._move_pinky_like()
-
-    def _move_inky_like(self) -> tuple[int, int, int]:
         """Run the original Inky branch logic."""
         if self.direction == RIGHT:
             if self.target[0] > self.x_pos and self.turns[RIGHT]:
@@ -550,127 +444,6 @@ class Ghost:
                     self.x_pos += self.speed
             elif self.turns[DOWN]:
                 self.y_pos += self.speed
-        self._wrap_tunnel()
-        return self.x_pos, self.y_pos, self.direction
-
-    def _move_pinky_like(self) -> tuple[int, int, int]:
-        """Run the original Pinky branch logic."""
-        if self.direction == RIGHT:
-            if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                self.x_pos += self.speed
-            elif not self.turns[RIGHT]:
-                if self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-            elif self.turns[RIGHT]:
-                self.x_pos += self.speed
-        elif self.direction == LEFT:
-            if self.target[1] > self.y_pos and self.turns[DOWN]:
-                self.direction = DOWN
-            elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                self.x_pos -= self.speed
-            elif not self.turns[LEFT]:
-                if self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-            elif self.turns[LEFT]:
-                self.x_pos -= self.speed
-        elif self.direction == UP:
-            if self.target[0] < self.x_pos and self.turns[LEFT]:
-                self.direction = LEFT
-                self.x_pos -= self.speed
-            elif self.target[1] < self.y_pos and self.turns[UP]:
-                self.direction = UP
-                self.y_pos -= self.speed
-            elif not self.turns[UP]:
-                if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.target[1] > self.y_pos and self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.turns[DOWN]:
-                    self.direction = DOWN
-                    self.y_pos += self.speed
-                elif self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-            elif self.turns[UP]:
-                if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                else:
-                    self.y_pos -= self.speed
-        elif self.direction == DOWN:
-            if self.target[1] > self.y_pos and self.turns[DOWN]:
-                self.y_pos += self.speed
-            elif not self.turns[DOWN]:
-                if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.target[1] < self.y_pos and self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[UP]:
-                    self.direction = UP
-                    self.y_pos -= self.speed
-                elif self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                elif self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-            elif self.turns[DOWN]:
-                if self.target[0] > self.x_pos and self.turns[RIGHT]:
-                    self.direction = RIGHT
-                    self.x_pos += self.speed
-                elif self.target[0] < self.x_pos and self.turns[LEFT]:
-                    self.direction = LEFT
-                    self.x_pos -= self.speed
-                else:
-                    self.y_pos += self.speed
         self._wrap_tunnel()
         return self.x_pos, self.y_pos, self.direction
 
@@ -975,10 +748,11 @@ def _patrol_target(level: Level, ghost: Ghost, fallback_target: Point) -> Point:
         return fallback_target
 
     ghost_cell = ghost._cell_from_point((ghost.center_x, ghost.center_y))
+    # patrol_cells are already filtered to the ghost's reachable component,
+    # so no per-cell A* check is needed — just skip targets that are too close.
     for _ in range(len(patrol_cells)):
         target_cell = patrol_cells[ghost._patrol_index % len(patrol_cells)]
-        reachable = bool(ghost._astar(level, ghost_cell, target_cell))
-        if Ghost._heuristic(ghost_cell, target_cell) > PATROL_REACHED_DISTANCE and reachable:
+        if Ghost._heuristic(ghost_cell, target_cell) > PATROL_REACHED_DISTANCE:
             return _point_from_cell(target_cell)
         ghost._patrol_index += 1
 
@@ -987,6 +761,10 @@ def _patrol_target(level: Level, ghost: Ghost, fallback_target: Point) -> Point:
 
 def _patrol_cells(level: Level, ghost: Ghost) -> list[Cell]:
     """Return passable patrol cells spread across the whole board."""
+    cache_key = (id(level), ghost._can_use_gate())
+    if ghost._patrol_cache_key == cache_key:
+        return ghost._patrol_cells_cache
+
     reachable = _reachable_patrol_cells(level, ghost)
     cells: list[Cell] = []
     rows = list(range(2, BOARD_ROWS - 2, PATROL_ROW_STEP))
@@ -998,14 +776,21 @@ def _patrol_cells(level: Level, ghost: Ghost) -> list[Cell]:
             if cell in reachable and not _is_ghost_house_cell(cell):
                 cells.append(cell)
 
-    if cells:
-        return cells
+    if not cells:
+        cells = [cell for cell in reachable if not _is_ghost_house_cell(cell)]
 
-    return [cell for cell in reachable if not _is_ghost_house_cell(cell)]
+    ghost._patrol_cache_key = cache_key
+    ghost._patrol_reachable = reachable
+    ghost._patrol_cells_cache = cells
+    return cells
 
 
 def _reachable_patrol_cells(level: Level, ghost: Ghost) -> set[Cell]:
     """Return all patrol cells reachable from the ghost's current cell."""
+    cache_key = (id(level), ghost._can_use_gate())
+    if ghost._patrol_cache_key == cache_key and ghost._patrol_reachable:
+        return ghost._patrol_reachable
+
     start = ghost._cell_from_point((ghost.center_x, ghost.center_y))
     queue = [start]
     reachable = {start}
