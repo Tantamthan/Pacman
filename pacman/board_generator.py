@@ -176,15 +176,26 @@ def build_logical_from_genes(genes: list[int]) -> list[list[int]]:
             logical_half[sr][sc+1] = 1
             logical_half[sr+1][sc+1] = 1
             
+
             if c + 1 < GRID_COLS and grid[r][c] == grid[r][c+1]:
                 logical_half[sr][sc+2] = 1
                 logical_half[sr+1][sc+2] = 1
             if r + 1 < GRID_ROWS and grid[r][c] == grid[r+1][c]:
                 logical_half[sr+2][sc] = 1
                 logical_half[sr+2][sc+1] = 1
+                
+            # 3. THAY ĐỔI CỐT LÕI: Ép các khối KHÁC ID dính liền vào nhau nếu gene chỉ định
+            # Điều này giúp triệt tiêu các hành lang vụn 1 ô, gộp các khối rời rạc thành mảng lớn
+            gene_glue = genes[r * GRID_COLS + c]
+            if c + 1 < GRID_COLS and (gene_glue % 3 == 0): # 33% cơ hội gộp ngang với khối lân cận
+                logical_half[sr][sc+2] = 1
+                logical_half[sr+1][sc+2] = 1
+            if r + 1 < GRID_ROWS and (gene_glue % 3 == 1): # 33% cơ hội gộp dọc với khối lân cận
+                logical_half[sr+2][sc] = 1
+                logical_half[sr+2][sc+1] = 1
 
     # Đục các lối thông cố định quan trọng
-    for row in [4, 10, 22, 28]: logical_half[row][14] = 0
+    #for row in [4, 10, 22, 28]: logical_half[row][14] = 0
     logical_half[16][0] = 0
     logical_half[16][1] = 0
     logical_half[12][13] = 0

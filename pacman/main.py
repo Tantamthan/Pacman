@@ -362,25 +362,16 @@ def main() -> None:
                     level = generate_level(screen, font)
                     wall_surf = build_wall_surface(level, BLUE)
                     reset_game(player, ghosts)
-                    player.score = 0
-                    player.lives = PLAYER_LIVES
+                    if game_over:
+                        player.score = 0
+                        player.lives = PLAYER_LIVES
                     startup_counter = 0
                     game_over = False
                     game_won = False
+                    if agent is not None:
+                        agent._cached_action = None
             if event.type == pygame.KEYUP:
                 handle_keyup(event, player)
-
-        # AI auto-restart after game over / win, so the agent keeps demoing.
-        if agent is not None and (game_over or game_won):
-            level = generate_level(screen, font)
-            wall_surf = build_wall_surface(level, BLUE)
-            reset_game(player, ghosts)
-            player.score = 0
-            player.lives = PLAYER_LIVES
-            startup_counter = 0
-            game_over = False
-            game_won = False
-            agent._cached_action = None
 
         if agent is not None and moving and not game_over and not game_won:
             player.direction_command = agent.get_action(player, ghosts, level)

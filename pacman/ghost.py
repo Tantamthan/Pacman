@@ -632,6 +632,8 @@ class Ghost:
 # Tính target cho 4 con ma mỗi frame: chế độ chạy trốn khi Pac-Man có powerup, ngược lại chase/scatter/patrol theo từng ma.
 def get_targets(player: Player, ghosts: list[Ghost], level: Level) -> list[Point]:
     """Calculate the next target for each ghost."""
+    delayed_pos = player.get_delayed_position() if hasattr(player, "get_delayed_position") else (player.x_pos, player.y_pos)
+
     if player.x_pos < RUNAWAY_SPLIT:
         runaway_x = RUNAWAY_MAX
     else:
@@ -649,20 +651,20 @@ def get_targets(player: Player, ghosts: list[Ghost], level: Level) -> list[Point
             if _in_chase_box(blinky):
                 blink_target = BOX_EXIT_TARGET
             else:
-                blink_target = (player.x_pos, player.y_pos)
+                blink_target = delayed_pos
         else:
             blink_target = RETURN_TARGET
         if not inky.dead and not player.eaten_ghost[INKY_ID]:
-            ink_target = (runaway_x, player.y_pos)
+            ink_target = (runaway_x, delayed_pos[1])
         elif not inky.dead and player.eaten_ghost[INKY_ID]:
             if _in_chase_box(inky):
                 ink_target = BOX_EXIT_TARGET
             else:
-                ink_target = (player.x_pos, player.y_pos)
+                ink_target = delayed_pos
         else:
             ink_target = RETURN_TARGET
         if not pinky.dead:
-            pink_target = (player.x_pos, runaway_y)
+            pink_target = (delayed_pos[0], runaway_y)
         else:
             pink_target = RETURN_TARGET
         if not clyde.dead and not player.eaten_ghost[CLYDE_ID]:
@@ -671,7 +673,7 @@ def get_targets(player: Player, ghosts: list[Ghost], level: Level) -> list[Point
             if _in_chase_box(clyde):
                 clyd_target = BOX_EXIT_TARGET
             else:
-                clyd_target = (player.x_pos, player.y_pos)
+                clyd_target = delayed_pos
         else:
             clyd_target = RETURN_TARGET
     else:
@@ -697,7 +699,7 @@ def _normal_target(level: Level, player: Player, ghost: Ghost, fallback_target: 
     if ghost.in_box:
         return BOX_EXIT_TARGET
     if _can_detect_player(level, player, ghost):
-        return player.x_pos, player.y_pos
+        return player.get_delayed_position() if hasattr(player, "get_delayed_position") else (player.x_pos, player.y_pos)
     ghost.is_patrolling = True
     return _patrol_target(level, ghost, fallback_target)
 

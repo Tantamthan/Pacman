@@ -84,10 +84,23 @@ def draw_misc(
         gameover_text = font.render("Game over! Space bar to restart!", True, RED)
         screen.blit(gameover_text, MESSAGE_POS)
     if game_won:
-        pygame.draw.rect(screen, WHITE, MESSAGE_OUTER_RECT, 0, MESSAGE_RADIUS)
-        pygame.draw.rect(screen, DARK_GRAY, MESSAGE_INNER_RECT, 0, MESSAGE_RADIUS)
-        gameover_text = font.render("Victory! Space bar to restart!", True, GREEN)
-        screen.blit(gameover_text, MESSAGE_POS)
+        # Create a more prominent UI for Victory
+        win_rect_outer = pygame.Rect(WIDTH // 4 - 30, HEIGHT // 2 - 60, WIDTH // 2 + 60, 120)
+        win_rect_inner = pygame.Rect(WIDTH // 4 - 25, HEIGHT // 2 - 55, WIDTH // 2 + 50, 110)
+        pygame.draw.rect(screen, (255, 215, 0), win_rect_outer, 0, 15) # Gold border
+        pygame.draw.rect(screen, (30, 30, 30), win_rect_inner, 0, 15)  # Dark inner
+        
+        big_font = pygame.font.Font("freesansbold.ttf", 40)
+        small_font = pygame.font.Font("freesansbold.ttf", 20)
+        
+        title_text = big_font.render("VICTORY!", True, (255, 215, 0)) # Gold text
+        sub_text = small_font.render("Press Space to continue", True, WHITE)
+        
+        title_pos = (WIDTH // 2 - title_text.get_width() // 2, HEIGHT // 2 - 40)
+        sub_pos = (WIDTH // 2 - sub_text.get_width() // 2, HEIGHT // 2 + 15)
+        
+        screen.blit(title_text, title_pos)
+        screen.blit(sub_text, sub_pos)
 
 
 def draw_loading(screen: pygame.Surface, font: pygame.font.Font, seed: int) -> None:

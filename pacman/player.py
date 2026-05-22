@@ -65,6 +65,7 @@ class Player:
         self.turns_allowed: list[bool] = [False, False, False, False]
         self.eaten_ghost: list[bool] = [False, False, False, False]
         self.blocked_frames: int = 0
+        self.position_history: list[tuple[int, int]] = []
 
     # Trả về tọa độ x tâm hộp va chạm của Pac-Man.
     @property
@@ -155,6 +156,10 @@ class Player:
     def move(self, level: Level) -> None:
         """Move Pac-Man one frame using the current direction."""
         del level
+        self.position_history.append((self.x_pos, self.y_pos))
+        if len(self.position_history) > 3:
+            self.position_history.pop(0)
+
         if self._move_in_direction(self.direction):
             self.blocked_frames = 0
             return
@@ -252,6 +257,13 @@ class Player:
         self.power_counter = 0
         self.eaten_ghost = [False, False, False, False]
         self.blocked_frames = 0
+        self.position_history = []
+
+    def get_delayed_position(self) -> tuple[int, int]:
+        """Return the player's position from a few frames ago to create a blind spot."""
+        if self.position_history:
+            return self.position_history[0]
+        return self.x_pos, self.y_pos
 
     # Reset toàn bộ cho ván mới: vị trí, điểm = 0 và số mạng về tối đa.
     def reset_full(self) -> None:
