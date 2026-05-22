@@ -1,4 +1,4 @@
-"""Template-based random board generator for Pac-Man using Genetic Algorithm."""
+"""Template-based random board generator for Pac-Man driven by Genetic Algorithm."""
 
 from __future__ import annotations
 
@@ -103,7 +103,10 @@ def is_ghost_area(r, c):
     return 3 <= r <= 5 and c >= 2
 
 def build_logical_from_genes(genes: list[int]) -> list[list[int]]:
-    """Xây dựng nửa map logic dựa trên chuỗi gien quyết định."""
+    """
+    Xây dựng nửa map logic dựa trên chuỗi gien quyết định thứ tự ưu tiên hình khối.
+    Đảm bảo 100% map đẹp nhờ việc bắt buộc sử dụng cấu trúc khối cố định từ SHAPES.
+    """
     logical_half = [[0 for _ in range(15)] for _ in range(BOARD_ROWS)]
     
     # Tạo biên bao bọc cố định bên ngoài
@@ -115,17 +118,17 @@ def build_logical_from_genes(genes: list[int]) -> list[list[int]]:
 
     grid = [[-1 for _ in range(GRID_COLS)] for _ in range(GRID_ROWS)]
     shape_id = 0
-    gene_idx = 0
     
+    # Điền khối dựa theo chỉ thị trực tiếp từ chuỗi nhiễm sắc thể GA
     for r in range(GRID_ROWS):
         for c in range(GRID_COLS):
             if grid[r][c] != -1: continue
             
-            # Lấy shape dựa trên gene hiện tại (đảm bảo tính tuần tự tái tạo của GA)
-            shape_pool_idx = genes[gene_idx % len(genes)] % len(SHAPES)
-            gene_idx += 1
-            shape = SHAPES[shape_pool_idx]
+            # Lấy chỉ số gene tương ứng với ô hiện tại
+            gene_value = genes[r * GRID_COLS + c]
+            shape = SHAPES[gene_value % len(SHAPES)]
             
+            # Kiểm tra xem khối được gene chỉ định có đặt vừa tại đây không
             fits = True
             for dr, dc in shape:
                 nr, nc = r + dr, c + dc
@@ -134,18 +137,22 @@ def build_logical_from_genes(genes: list[int]) -> list[list[int]]:
                     break
             
             if fits:
+                # Tránh can thiệp khu vực nhà ma hoặc chặn đường hầm
                 in_ghost = any(is_ghost_area(r+dr, c+dc) for dr, dc in shape)
                 has_4_5 = any(r+dr == 4 for dr, dc in shape) and any(r+dr == 5 for dr, dc in shape)
                 if (in_ghost and len(shape) > 1) or has_4_5:
                     fits = False
 
             if fits:
-                for dr, dc in shape: grid[r+dr][c+dc] = shape_id
+                for dr, dc in shape:
+                    grid[r+dr][c+dc] = shape_id
             else:
-                grid[r][c] = shape_id  # fallback về mảnh 1x1 nếu không vừa
+                # Nếu không vừa khối do gene chỉ định, ép đặt khối 1x1 để lấp đầy khoảng trống sạch sẽ
+                grid[r][c] = shape_id
+                
             shape_id += 1
 
-    # Map các block 2x2 lên lưới logical_half
+    # Khai triển mảng khối lên lưới logical_half
     for r in range(GRID_ROWS):
         for c in range(GRID_COLS):
             sr, sc = 2 + r * 3, 2 + c * 3
@@ -161,7 +168,7 @@ def build_logical_from_genes(genes: list[int]) -> list[list[int]]:
                 logical_half[sr+2][sc] = 1
                 logical_half[sr+2][sc+1] = 1
 
-    # Đục các lối thông cố định quan trọng (Giữ nguyên cấu trúc gameplay gốc)
+    # Đục các lối thông cố định quan trọng
     for row in [4, 10, 22, 28]: logical_half[row][14] = 0
     logical_half[16][0] = 0
     logical_half[16][1] = 0
@@ -181,8 +188,7 @@ def build_logical_from_genes(genes: list[int]) -> list[list[int]]:
     return logical
 
 def evaluate_fitness(logical: list[list[int]]) -> tuple[float, int, bool]:
-    """Hàm Fitness đánh giá chất lượng map."""
-    # 1. Flood fill kiểm tra tính kết nối toàn bộ đường đi
+    """Hàm Fitness tối ưu hóa cấu trúc đường đi thông minh."""
     start_pos = (24, 14)
     reachable = set()
     q = deque([start_pos])
@@ -196,7 +202,6 @@ def evaluate_fitness(logical: list[list[int]]) -> tuple[float, int, bool]:
         for c in range(BOARD_COLS):
             if logical[r][c] == 0:
                 total_walkable += 1
-                # Tính toán ngõ cụt (ô trống có >= 3 hướng xung quanh là tường)
                 walls_around = 0
                 for dr, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
                     if _is_logical_wall(logical, r+dr, c+dc):
@@ -215,25 +220,30 @@ def evaluate_fitness(logical: list[list[int]]) -> tuple[float, int, bool]:
                     reachable.add((nr, nc))
                     q.append((nr, nc))
 
-    # Tính toán tỷ lệ phần trăm map đi tới được
+    # Tính toán tỷ lệ phần trăm kết nối liên thông đường đi
     connectivity = len(reachable) / total_walkable if total_walkable > 0 else 0
     playable = (connectivity == 1.0)
     
-    # Tỷ lệ mật độ tường tối ưu lý tưởng cho Pacman (~38%)
+    # Đo lường mật độ phân bổ tường tối ưu của game (~35% - 43%)
     total_tiles = BOARD_ROWS * BOARD_COLS
     wall_ratio = wall_count / total_tiles
-    wall_fitness = max(0, 1.0 - abs(wall_ratio - 0.38) * 3)
+    wall_fitness = max(0, 1.0 - abs(wall_ratio - 0.39) * 4)
 
-    # Điểm phạt ngõ cụt (Càng nhiều ngõ cụt map càng dở)
-    dead_end_penalty = dead_ends * 5.0
+    # ĐIỂM THƯỞNG ĐƯỜNG ĐI DÀI (Khuyến khích các hành lang chạy mượt, liên kết tốt)
+    path_flow_bonus = (total_walkable / total_tiles) * 50.0
+
+    # Phạt nặng ngõ cụt để tránh kẹt ma
+    dead_end_penalty = dead_ends * 15.0
     
-    # Tính điểm tổng hợp
-    fitness_score = (connectivity * 100.0) + (wall_fitness * 30.0) - dead_end_penalty
+    # Điểm phạt cực nặng nếu map không thể phá đảo (bị cô lập đường đi)
+    unplayable_penalty = 0 if playable else 200.0
+
+    fitness_score = (connectivity * 150.0) + (wall_fitness * 50.0) + path_flow_bonus - dead_end_penalty - unplayable_penalty
     return max(0.0, fitness_score), dead_ends, playable
 
 class GeneticAlgorithm:
-    """Bộ engine GA tinh chỉnh thế hệ map tối ưu."""
-    def __init__(self, pop_size=20, generations=15, mutation_rate=0.15, rng=None):
+    """Bộ engine GA tiến hóa chuỗi định vị khối tường phối hợp bài bản."""
+    def __init__(self, pop_size=30, generations=25, mutation_rate=0.1, rng=None):
         self.pop_size = pop_size
         self.generations = generations
         self.mutation_rate = mutation_rate
@@ -241,23 +251,24 @@ class GeneticAlgorithm:
         self.chromosome_len = GRID_ROWS * GRID_COLS
 
     def generate_individual(self) -> list[int]:
-        return [self.rng.randint(0, 100) for _ in range(self.chromosome_len)]
+        # Mỗi gene lưu giá trị index cấu trúc hình khối từ 0 -> 99
+        return [self.rng.randint(0, 99) for _ in range(self.chromosome_len)]
 
     def crossover(self, parent1: list[int], parent2: list[int]) -> list[int]:
-        # Crossover một điểm (Single-point crossover)
-        cut = self.rng.randint(1, self.chromosome_len - 1)
-        return parent1[:cut] + parent2[cut:]
+        # Uniform Crossover (Trộn gien đồng đều): Giúp giữ lại các cụm tổ hợp khối tốt bất kể vị trí cắt
+        child = []
+        for g1, g2 in zip(parent1, parent2):
+            child.append(g1 if self.rng.random() < 0.5 else g2)
+        return child
 
     def mutate(self, individual: list[int]) -> list[int]:
         for i in range(self.chromosome_len):
             if self.rng.random() < self.mutation_rate:
-                individual[i] = self.rng.randint(0, 100)
+                individual[i] = self.rng.randint(0, 99)
         return individual
 
     def evolve(self) -> list[int]:
-        # Khởi tạo quần thể ban đầu
         population = [self.generate_individual() for _ in range(self.pop_size)]
-        
         best_individual = population[0]
         best_fitness = -1.0
 
@@ -272,11 +283,10 @@ class GeneticAlgorithm:
                     best_fitness = fit
                     best_individual = ind
 
-            # Sắp xếp chọn lọc tự nhiên (Chọn tinh hoa - Roulette Wheel / Selection)
+            # Chọn lọc tự nhiên bằng Elitism (Top 4 cá thể tinh hoa đi tiếp)
             scored_pop.sort(key=lambda x: x[0], reverse=True)
-            elites = [ind for fit, ind in scored_pop[:2]] # Giữ lại 2 cá thể tốt nhất
+            elites = [ind for fit, ind in scored_pop[:4]]
 
-            # Sinh sản thế hệ mới
             next_pop = list(elites)
             while len(next_pop) < self.pop_size:
                 p1 = self.rng.choice(elites)
@@ -292,21 +302,19 @@ class GeneticAlgorithm:
 def generate_board(seed: int | None = None, **kwargs) -> Level:
     rng = random.Random(seed)
     
-    # Chạy thuật toán di truyền để tìm bộ gene sinh map tốt nhất
-    ga = GeneticAlgorithm(pop_size=25, generations=20, mutation_rate=0.2, rng=rng)
+    # GA tối ưu hóa việc phân bổ tổ hợp khối đẹp
+    ga = GeneticAlgorithm(pop_size=35, generations=30, mutation_rate=0.08, rng=rng)
     best_genes = ga.evolve()
     
-    # Xây dựng lại bản đồ logic từ nhiễm sắc thể tốt nhất tìm được
     logical = build_logical_from_genes(best_genes)
     fitness, dead_ends, playable = evaluate_fitness(logical)
     
-    # Lưu lại thông tin báo cáo của thuật toán
     LAST_GENERATION_INFO["seed"] = seed
     LAST_GENERATION_INFO["fitness"] = round(fitness, 2)
     LAST_GENERATION_INFO["playable"] = playable
     LAST_GENERATION_INFO["dead_ends"] = dead_ends
 
-    # Quá trình chuyển đổi mảng logic thành các Asset Tile đồ họa hoàn chỉnh
+    # Render tài nguyên đồ họa gạch tường bo góc mượt mà lên màn hình
     board = [[DOT_TILE for _ in range(BOARD_COLS)] for _ in range(BOARD_ROWS)]
     for row in range(BOARD_ROWS):
         for col in range(BOARD_COLS):
@@ -322,16 +330,13 @@ def generate_board(seed: int | None = None, **kwargs) -> Level:
     if board[12][14] >= WALL_TILE: board[12][14] = DOT_TILE
     if board[12][15] >= WALL_TILE: board[12][15] = DOT_TILE
     
-    # Thiết lập vùng trống cho hai cửa đường hầm (Tunnels)
     for col in range(0, 5):
         board[16][col] = EMPTY_TILE
         board[16][BOARD_COLS - 1 - col] = EMPTY_TILE
         
-    # Làm trống khu vực spawn của Pacman
     board[24][14] = EMPTY_TILE
     board[24][15] = EMPTY_TILE
 
-    # Đặt 4 viên Power Dots ở 4 góc map chuẩn xác
     board[1][1] = POWER_DOT_TILE
     board[1][BOARD_COLS - 2] = POWER_DOT_TILE
     board[31][1] = POWER_DOT_TILE
