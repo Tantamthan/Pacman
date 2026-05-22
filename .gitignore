@@ -1,0 +1,6 @@
+
+        assets/
+        board.py
+        pacman.py
+        pacman/
+        test_artifacts/
