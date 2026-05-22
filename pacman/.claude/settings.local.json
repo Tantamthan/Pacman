@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//e/pythongame/PythonPacman-main/**)",
+      "Bash(python -m py_compile pacman/main.py pacman/player.py pacman/ghost.py pacman/player_ai.py)"
+    ]
+  }
+}

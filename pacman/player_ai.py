@@ -1,14 +1,3 @@
-"""Expectimax AI agent for Pac-Man player.
-
-Implements classical adversarial search where:
-- Pac-Man is a MAX node (chooses best action).
-- Ghosts are CHANCE nodes (move probabilistically — uniform distribution
-  over legal non-reversing actions). This matches the actual ghost AI
-  behavior better than Minimax (which would assume worst-case ghosts).
-
-The search runs on a lightweight cell-based abstraction of the live game,
-re-evaluated every few frames so it stays well under the 16 ms budget.
-"""
 
 from __future__ import annotations
 
@@ -51,19 +40,24 @@ DIRECTION_DELTAS: dict[int, tuple[int, int]] = {
 REVERSE: dict[int, int] = {RIGHT: LEFT, LEFT: RIGHT, UP: DOWN, DOWN: UP}
 
 # Search parameters
-DEFAULT_DEPTH = 2          # Pac-Man plies (1 ply = 1 Pac-Man + chance nodes)
-DECISION_INTERVAL = 6      # Recompute every N frames (~10 Hz at 60 FPS)
-ACTIVE_GHOSTS = 2          # Only the nearest N ghosts get chance nodes
+DEFAULT_DEPTH = 2
+DECISION_INTERVAL = 6
+ACTIVE_GHOSTS = 2
 UNREACHABLE_DISTANCE = BOARD_ROWS * BOARD_COLS
 
-# --- Evaluation weights — Bước 1: less defensive, more dot-greedy ---
 W_SCORE = 1.0
-W_DOT_REMAINING = 8.0        # ↑ Strong push to clear dots (was 4)
-W_NEAREST_DOT = 2.5          # ↑ Pull toward nearest dot (was 1.5)
-W_NEAREST_POWER = 1.0        # ↑ (was 0.5)
-W_GHOST_DANGER_CLOSE = 200.0 # ↓ Bớt sợ (was 500)
-W_GHOST_DANGER_NEAR = 60.0   # ↓ Áp dụng khi dist <= 2 only (was 100, dist <= 3)
-GHOST_DANGER_RANGE = 2       # Chỉ react khi BFS distance <= 2
+W_DOT_REMAINING = 8.0
+W_NEAREST_DOT = 2.5
+W_NEAREST_POWER = 1.0       
+W_GHOST_DANGER_CLOSE = 300.0 # ↑ Tăng sợ ma sát mặt (was 200)
+W_GHOST_DANGER_NEAR = 120.0  # ↑ x2 — react với ma trong dist <= 4 (was 60)
+GHOST_DANGER_RANGE = 4       # ↑ Cảm nhận ma từ xa hơn (was 2)
+
+# End-game push: when few dots remain, AI tends to circle around them
+# because nearest-dot gradient is too weak compared to safety. Boost the
+# gradient so Pac-Man commits to the last isolated dots.
+ENDGAME_DOT_THRESHOLD = 15
+ENDGAME_DOT_MULTIPLIER = 3.0
 W_SCARED_GHOST = 250.0       # Nhiều điểm hơn cho việc săn ma sợ
 W_EXPLORATION_PENALTY = 10.0 # Phạt cell đã thăm gần đây (Option A: 3 -> 10)
 EXPLORATION_MEMORY = 200     # Số frame nhớ "đã thăm" (Option A: 80 -> 200)
@@ -72,20 +66,12 @@ EXPLORATION_MEMORY = 200     # Số frame nhớ "đã thăm" (Option A: 80 -> 20
 # Pac-Man with a random valid direction to break out of safe-loop traps.
 STAGNATION_THRESHOLD = 300
 
-# --- Option B: Dot cluster density (tuned to avoid local max trap) ---
-# Cluster bonus must be SMALLER than the score gain from eating a dot (+10).
-# Otherwise the agent prefers sitting in a cluster over consuming it.
+
 CLUSTER_RADIUS = 5           # cells within this radius count as "cluster"
 W_CLUSTER_NEAR = 1.5         # ↓ from 5 — avoid trapping at local max
 W_CLUSTER_FAR = 0.5          # ↓ from 1.5
 CLUSTER_RADIUS_FAR = 10      # broader radius for distant clusters
 
-# --- Option C: A* target bias inside Expectimax ---
-# Rather than switching modes (which oscillated), we keep Expectimax as the
-# sole decision-maker but inject a strategic "go here" signal: each frame we
-# pick a high-value target dot via A*-style scoring, then bias the eval by
-# distance from the search state to that target. This gives Expectimax a
-# strong gradient toward dense dot regions while preserving tactical depth.
 W_TARGET_BIAS = 0.0          # disabled: target bias hurt more than helped
 W_TARGET_DENSITY = 3.0       # candidate-target scoring: dots near it
 W_TARGET_GHOST_PENALTY = 20.0  # avoid targets close to ghosts
@@ -98,6 +84,7 @@ class GameState:
 
     __slots__ = ("pacman", "ghosts", "ghost_dirs", "dots", "power_dots", "powerup_timer", "score")
 
+    # Khởi tạo snapshot trạng thái game (vị trí Pac-Man + ma, dots còn lại, powerup, điểm) phục vụ search Expectimax.
     def __init__(
         self,
         pacman: Cell,
@@ -125,6 +112,7 @@ class ExpectimaxAgent:
         direction = agent.get_action(player, ghosts, level)
     """
 
+    # Khởi tạo agent Expectimax: depth tìm kiếm, các bộ đếm frame, cache action, distance map BFS, target A* và RNG.
     def __init__(self, depth: int = DEFAULT_DEPTH) -> None:
         self.depth = depth
         self._frame_counter = 0
@@ -148,6 +136,7 @@ class ExpectimaxAgent:
         self.mode_astar_count = 0       # target re-picks
         self.mode_expectimax_count = 0  # expectimax search runs
 
+    # Cổng vào AI mỗi frame: cập nhật trạng thái, chống đứng yên (stagnation), tái dùng action cache, tính BFS + target rồi chạy Expectimax.
     def get_action(self, player: "Player", ghosts: list["Ghost"], level: Level) -> int:
         """Return the next direction Pac-Man should commit to."""
         self._frame_counter += 1
@@ -234,6 +223,7 @@ class ExpectimaxAgent:
 
     # ----- A* high-level planner (Option C) -----
 
+    # Chọn (hoặc tái dùng) target chiến lược bằng A* rồi trả về hướng đi của bước đầu tiên trên path tới target.
     def _astar_action(
         self,
         level: Level,
@@ -270,6 +260,7 @@ class ExpectimaxAgent:
             return None
         return _direction_between(pacman_cell, first_step)
 
+    # Chọn cell mục tiêu có giá trị cao nhất: săn ma sợ khi có powerup; bình thường chấm điểm dot theo cụm/khoảng cách/risk ma.
     def _pick_target(
         self,
         level: Level,
@@ -348,6 +339,7 @@ class ExpectimaxAgent:
 
     # ----- State construction -----
 
+    # Quét bản đồ và đối tượng game để dựng GameState gọn (cell Pac-Man, ma, hướng ma, dots, power dots, powerup_timer, score).
     @staticmethod
     def _build_state(player: "Player", ghosts: list["Ghost"], level: Level) -> GameState:
         pacman_cell = (
@@ -387,6 +379,7 @@ class ExpectimaxAgent:
 
     # ----- Expectimax search -----
 
+    # Tầng MAX trên cùng của Expectimax: thử mọi action hợp lệ của Pac-Man và chọn cái có giá trị ước lượng cao nhất.
     def _best_action(self, state: GameState, level: Level) -> int | None:
         """Top-level MAX: pick the best Pac-Man action."""
         active_ghosts = self._pick_active_ghosts(state)
@@ -402,6 +395,7 @@ class ExpectimaxAgent:
                 best_action = action
         return best_action
 
+    # Chọn chỉ số của ACTIVE_GHOSTS con ma gần Pac-Man nhất để mở rộng làm chance node; các ma còn lại coi như đứng yên trong search.
     @staticmethod
     def _pick_active_ghosts(state: GameState) -> tuple[int, ...]:
         """Pick indexes of ghosts nearest to Pac-Man to expand as chance nodes.
@@ -416,6 +410,7 @@ class ExpectimaxAgent:
         )
         return tuple(order[:ACTIVE_GHOSTS])
 
+    # Đệ quy expectimax: tầng Pac-Man là MAX; tầng từng con ma là CHANCE (trung bình đều trên các action hợp lệ).
     def _expectimax(
         self,
         state: GameState,
@@ -457,6 +452,7 @@ class ExpectimaxAgent:
 
     # ----- Successors / Actions -----
 
+    # Liệt kê các hướng Pac-Man có thể đi từ cell hiện tại (cell kế bên không phải tường).
     def _legal_pacman_actions(self, state: GameState, level: Level) -> list[int]:
         actions: list[int] = []
         r, c = state.pacman
@@ -466,6 +462,7 @@ class ExpectimaxAgent:
                 actions.append(d)
         return actions
 
+    # Liệt kê hướng hợp lệ cho 1 con ma: cấm quay đầu trừ khi đường cụt buộc phải đảo chiều.
     def _legal_ghost_actions(
         self, state: GameState, ghost_idx: int, level: Level
     ) -> list[int]:
@@ -486,6 +483,7 @@ class ExpectimaxAgent:
                 actions.append(forbidden)
         return actions
 
+    # Sinh GameState mới sau khi Pac-Man đi action: cập nhật cell, ăn dot/power dot, cộng điểm, giảm powerup_timer.
     @staticmethod
     def _apply_pacman(state: GameState, action: int) -> GameState:
         dr, dc = DIRECTION_DELTAS[action]
@@ -514,6 +512,7 @@ class ExpectimaxAgent:
             new_score,
         )
 
+    # Sinh GameState mới sau khi một con ma đi action: cập nhật vị trí và hướng của ma đó.
     @staticmethod
     def _apply_ghost(state: GameState, ghost_idx: int, action: int) -> GameState:
         dr, dc = DIRECTION_DELTAS[action]
@@ -534,6 +533,7 @@ class ExpectimaxAgent:
 
     # ----- Terminal / Evaluation -----
 
+    # Kiểm tra state có phải terminal: thắng khi hết dots, thua khi Pac-Man chạm ma mà không có powerup.
     @staticmethod
     def _is_terminal(state: GameState) -> bool:
         # Win: no dots/power dots remain
@@ -546,6 +546,7 @@ class ExpectimaxAgent:
                     return True
         return False
 
+    # Hàm heuristic chấm điểm state (cao = tốt cho Pac-Man): cộng score, trừ dot còn lại + nearest dot, cụm dot, ghost danger, exploration, A* target bias.
     def _evaluate(self, state: GameState, level: Level) -> float:
         """Heuristic evaluation. Higher = better for Pac-Man."""
         # Terminal-style adjustments
@@ -578,7 +579,12 @@ class ExpectimaxAgent:
                     near_count += 1
                 elif d <= CLUSTER_RADIUS_FAR:
                     far_count += 1
-            score -= W_NEAREST_DOT * d_min
+            # End-game: amplify nearest-dot gradient so Pac-Man commits
+            # to isolated final dots instead of orbiting them.
+            nearest_weight = W_NEAREST_DOT
+            if len(state.dots) + len(state.power_dots) < ENDGAME_DOT_THRESHOLD:
+                nearest_weight *= ENDGAME_DOT_MULTIPLIER
+            score -= nearest_weight * d_min
             score += W_CLUSTER_NEAR * near_count
             score += W_CLUSTER_FAR * far_count
 
@@ -592,9 +598,9 @@ class ExpectimaxAgent:
         # the true post-move distance.
         is_scared = state.powerup_timer > 0
         for ghost in state.ghosts:
-            d_real = self._dist_from_pacman.get(ghost, UNREACHABLE_DISTANCE)
-            # Use the tighter of BFS and Manhattan (Manhattan is a lower bound).
-            d = min(d_real, _manhattan(state.pacman, ghost))
+            # Use true BFS distance through walls — Manhattan would let the
+            # agent "see through" walls and underestimate threat in corridors.
+            d = self._dist_from_pacman.get(ghost, UNREACHABLE_DISTANCE)
             if is_scared:
                 score += W_SCARED_GHOST / max(1, d)
             else:
@@ -626,16 +632,19 @@ class ExpectimaxAgent:
 # ----- Helpers -----
 
 
+# Kiểm tra cell có trong board và không phải tường (đi qua được).
 def _is_walkable_cell(level: Level, row: int, col: int) -> bool:
     if not (0 <= row < BOARD_ROWS and 0 <= col < BOARD_COLS):
         return False
     return level[row][col] < WALL_TILE
 
 
+# Khoảng cách Manhattan giữa 2 cell (nhanh, dùng làm heuristic/sắp xếp).
 def _manhattan(a: Cell, b: Cell) -> int:
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
+# BFS từ `start` ra mọi cell đi được; trả về dict {cell: khoảng_cách} (khoảng cách thật qua hành lang, không xuyên tường).
 def _bfs_distance_field(level: Level, start: Cell) -> dict[Cell, int]:
     """Compute BFS distance from `start` to every walkable cell."""
     if not _is_walkable_cell(level, start[0], start[1]):
@@ -655,6 +664,7 @@ def _bfs_distance_field(level: Level, start: Cell) -> dict[Cell, int]:
     return dist
 
 
+# BFS từ `start` trả về cả khoảng cách và parent pointers để có thể truy ngược path tới bất kỳ cell nào.
 def _bfs_with_parents(level: Level, start: Cell) -> tuple[dict[Cell, int], dict[Cell, Cell | None]]:
     """BFS from `start`, returning distance field AND parent pointers.
 
@@ -681,6 +691,7 @@ def _bfs_with_parents(level: Level, start: Cell) -> tuple[dict[Cell, int], dict[
     return dist, parents
 
 
+# Đi ngược parent chain từ target về start; trả về cell ngay sau start trên đường tới target (bước đầu tiên).
 def _first_step_on_path(parents: dict[Cell, Cell | None], start: Cell, target: Cell) -> Cell | None:
     """Walk the parent chain from target back to start; return the cell adjacent to start."""
     if target not in parents or target == start:
@@ -691,6 +702,7 @@ def _first_step_on_path(parents: dict[Cell, Cell | None], start: Cell, target: C
     return cur if parents.get(cur) == start else None
 
 
+# Trả về hướng (RIGHT/LEFT/UP/DOWN) đi từ cell a sang cell b láng giềng trực giao.
 def _direction_between(a: Cell, b: Cell) -> int | None:
     """Cardinal direction from `a` to its orthogonal neighbor `b`."""
     dr = b[0] - a[0]
@@ -706,6 +718,7 @@ def _direction_between(a: Cell, b: Cell) -> int | None:
     return None
 
 
+# BFS từ start tìm cell đầu tiên thuộc tập targets; trả về khoảng cách ngắn nhất hoặc UNREACHABLE_DISTANCE.
 def _bfs_distance_multi(level: Level, start: Cell, targets: frozenset[Cell] | set[Cell]) -> int:
     """Shortest walkable distance from start to any cell in targets."""
     if start in targets:

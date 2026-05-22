@@ -59,6 +59,7 @@ PATROL_REACHED_DISTANCE = 2
 class Ghost:
     """Store ghost state and run the original pathing logic."""
 
+    # Khởi tạo một con ma với vị trí, target, tốc độ, hình ảnh, hướng đi và các cờ trạng thái (chết/trong hộp).
     def __init__(
         self,
         x_coord: int,
@@ -95,16 +96,19 @@ class Ghost:
         self._patrol_reachable: set[Cell] = set()
         self._patrol_cells_cache: list[Cell] = []
 
+    # Trả về tọa độ x tâm hộp va chạm của ma.
     @property
     def center_x(self) -> int:
         """Return the horizontal collision center."""
         return self.x_pos + GHOST_CENTER_OFFSET
 
+    # Trả về tọa độ y tâm hộp va chạm của ma.
     @property
     def center_y(self) -> int:
         """Return the vertical collision center."""
         return self.y_pos + GHOST_CENTER_OFFSET
 
+    # Vẽ ma lên màn hình với sprite tương ứng (bình thường / sợ khi Pac-Man có powerup / mắt khi đã bị ăn); trả về rect va chạm.
     def draw(
         self,
         screen: pygame.Surface,
@@ -127,6 +131,7 @@ class Ghost:
         )
         return self.rect
 
+    # Xét bản đồ quanh ma để liệt kê 4 hướng có thể đi và xác định ma có đang ở trong hộp nhà ma không.
     def check_collisions(self, level: Level) -> tuple[list[bool], bool]:
         """Return legal turns and whether the ghost is in the box."""
         turns = [False, False, False, False]
@@ -175,11 +180,13 @@ class Ghost:
         self.turns = turns
         return self.turns, self.in_box
 
+    # Kiểm tra một điểm pixel có đi qua được với ma này không (xét cả cổng nhà ma tùy trạng thái).
     def _is_open(self, level: Level, pixel_y: int, pixel_x: int) -> bool:
         """Return whether a pixel coordinate is passable for this ghost."""
         tile = level[pixel_y // CELL_H][pixel_x // CELL_W]
         return tile < WALL_TILE or (tile == GATE_TILE and self._can_use_gate())
 
+    # Đưa ma về vị trí khởi đầu, xóa trạng thái dead/in_box và path đã cache.
     def reset(self, x_coord: int, y_coord: int, direction: int) -> None:
         """Reset position and temporary ghost state."""
         self.x_pos = x_coord
@@ -194,6 +201,7 @@ class Ghost:
         self._last_pos = (self.x_pos, self.y_pos)
         self._stuck_frames = 0
 
+    # Di chuyển 1 frame kiểu Clyde: khi leo dọc còn tạt ngang để truy đuổi (hung hăng hơn Inky).
     def move_clyde(self) -> tuple[int, int, int]:
         """Move using Clyde's original pursuit behavior (aggressive sideways turns)."""
         if self.direction == RIGHT:
@@ -207,6 +215,7 @@ class Ghost:
         self._wrap_tunnel()
         return self.x_pos, self.y_pos, self.direction
 
+    # Di chuyển 1 frame kiểu Inky: khi leo dọc đi thẳng (không tạt ngang) — đơn giản hơn Clyde.
     def move_inky(self) -> tuple[int, int, int]:
         """Move using Inky's original pursuit behavior (straight-through vertical)."""
         if self.direction == RIGHT:
@@ -220,6 +229,7 @@ class Ghost:
         self._wrap_tunnel()
         return self.x_pos, self.y_pos, self.direction
 
+    # Logic đuổi theo target khi ma đang đi sang phải: ưu tiên đi tiếp, rẽ dọc khi bị chặn (chung cho Inky/Clyde).
     def _pursue_right(self) -> None:
         """RIGHT-direction pursuit. Identical for Inky and Clyde."""
         if self.target[0] > self.x_pos and self.turns[RIGHT]:
@@ -253,6 +263,7 @@ class Ghost:
             else:
                 self.x_pos += self.speed
 
+    # Logic đuổi theo target khi ma đang đi sang trái (chung cho Inky/Clyde).
     def _pursue_left(self) -> None:
         """LEFT-direction pursuit. Identical for Inky and Clyde."""
         if self.target[1] > self.y_pos and self.turns[DOWN]:
@@ -288,6 +299,7 @@ class Ghost:
             else:
                 self.x_pos -= self.speed
 
+    # Đuổi target khi đi lên kiểu Clyde: ưu tiên rẽ ngang về phía target trong khi đang leo.
     def _pursue_up_aggressive(self) -> None:
         """Clyde's UP: prefer LEFT toward target, take sideways turns while ascending."""
         if self.target[0] < self.x_pos and self.turns[LEFT]:
@@ -307,6 +319,7 @@ class Ghost:
             else:
                 self.y_pos -= self.speed
 
+    # Đuổi target khi đi lên kiểu Inky: chỉ đi thẳng lên, bị chặn thì fallback.
     def _pursue_up_simple(self) -> None:
         """Inky's UP: just go up if possible, else fallback."""
         if self.target[1] < self.y_pos and self.turns[UP]:
@@ -316,6 +329,7 @@ class Ghost:
         elif self.turns[UP]:
             self.y_pos -= self.speed
 
+    # Đuổi target khi đi xuống kiểu Clyde: kết hợp rẽ ngang khi đang đi xuống.
     def _pursue_down_aggressive(self) -> None:
         """Clyde's DOWN: take sideways turns while descending."""
         if self.target[1] > self.y_pos and self.turns[DOWN]:
@@ -332,6 +346,7 @@ class Ghost:
             else:
                 self.y_pos += self.speed
 
+    # Đuổi target khi đi xuống kiểu Inky: chỉ đi thẳng, bị chặn thì fallback.
     def _pursue_down_simple(self) -> None:
         """Inky's DOWN: just go down if possible, else fallback."""
         if self.target[1] > self.y_pos and self.turns[DOWN]:
@@ -341,6 +356,7 @@ class Ghost:
         elif self.turns[DOWN]:
             self.y_pos += self.speed
 
+    # Chuỗi fallback chung khi ma đang đi dọc (lên/xuống) bị chặn: thử ngang, đảo chiều, rồi đến hướng bất kỳ hợp lệ.
     def _vertical_fallback(self, up: bool) -> None:
         """Shared fallback chain when blocked while moving UP or DOWN."""
         opposite_y = DOWN if up else UP
@@ -372,12 +388,14 @@ class Ghost:
             self.direction = RIGHT
             self.x_pos += self.speed
 
+    # Cho ma đi xuyên đường hầm trái: nếu vượt mép trái thì teleport sang mép phải, đồng thời xóa path đã cache.
     def _wrap_tunnel(self) -> None:
         """Apply the original left-side ghost tunnel wrap."""
         if self.x_pos < GHOST_TUNNEL_LEFT:
             self.x_pos = GHOST_WRAP_RIGHT
             self._clear_path()
 
+    # Di chuyển ma 1 frame về phía target bằng A*: tận dụng path đã cache, chỉ tính lại khi target/state đổi hoặc path stale.
     def move_astar(self, level: Level, target: Point) -> None:
         """Move one frame toward target using a cached A* path."""
         target_cell = self._nearest_passable_cell(level, self._cell_from_point(target))
@@ -423,6 +441,7 @@ class Ghost:
         self._handle_stuck(level, curr_cell, target_cell)
         self._wrap_tunnel()
 
+    # Phát hiện ma bị kẹt (không di chuyển nhiều frame liên tiếp); xóa path cache và chọn neighbor gần target nhất để thoát.
     def _handle_stuck(self, level: Level, curr_cell: Cell, target_cell: Cell) -> None:
         """Detect zero-movement frames and force a fresh path / sideways step."""
         if (self.x_pos, self.y_pos) != self._last_pos:
@@ -444,6 +463,7 @@ class Ghost:
         self._path_target = target_cell
         self._stuck_frames = 0
 
+    # Thuật toán A* với heuristic Manhattan: trả về danh sách cell từ sau start đến goal (rỗng nếu start==goal hoặc không có đường).
     def _astar(self, level: Level, start: Cell, goal: Cell) -> list[Cell]:
         """Return the shortest path from start to goal using Manhattan A*."""
         if start == goal:
@@ -479,12 +499,14 @@ class Ghost:
 
         return []
 
+    # Xóa toàn bộ path A* đã cache để buộc tính lại ở lần move tiếp theo.
     def _clear_path(self) -> None:
         """Invalidate the cached A* route."""
         self._path = []
         self._path_target = (-1, -1)
         self._path_mode = (self.dead, self.in_box)
 
+    # Di chuyển 1 frame về phía một điểm pixel cụ thể, không vượt quá điểm đích, đồng thời cập nhật hướng đi.
     def _move_toward_pixel(self, pixel_x: int, pixel_y: int) -> None:
         """Move one frame toward a pixel target without overshooting."""
         dx = pixel_x - self.center_x
@@ -507,6 +529,7 @@ class Ghost:
                 self.y_pos -= step
                 self.direction = UP
 
+    # Clamp tọa độ pixel target để chắc chắn nằm trong giới hạn cell đích (tránh nhảy ra ngoài cell).
     def _target_point_in_cell(self, target: Point, target_cell: Cell) -> Point:
         """Return a safe pixel target inside the requested cell."""
         row, col = target_cell
@@ -518,6 +541,7 @@ class Ghost:
         target_y = max(min_y, min(max_y, target[1]))
         return target_x, target_y
 
+    # Chuyển tọa độ pixel sang chỉ số (row, col) trên board, đã clamp trong giới hạn bản đồ.
     def _cell_from_point(self, point: Point) -> Cell:
         """Convert pixel coordinates to a clamped board cell."""
         x, y = point
@@ -525,6 +549,7 @@ class Ghost:
         col = max(0, min(BOARD_COLS - 1, x // CELL_W))
         return row, col
 
+    # Bỏ tất cả các bước trong path đã được ma đi qua (đến và bao gồm cell hiện tại).
     def _trim_path_to_current_cell(self, curr_cell: Cell) -> None:
         """Discard cached steps the ghost has already reached."""
         if curr_cell not in self._path:
@@ -532,6 +557,7 @@ class Ghost:
         index = self._path.index(curr_cell)
         del self._path[: index + 1]
 
+    # Kiểm tra path cache có còn hợp lệ không: cell đầu tiên của path phải kề với cell hiện tại của ma.
     def _path_is_stale(self, curr_cell: Cell) -> bool:
         """Return whether the cached path no longer starts beside this cell."""
         if not self._path:
@@ -539,6 +565,7 @@ class Ghost:
         next_cell = self._path[0]
         return self._heuristic(curr_cell, next_cell) != 1
 
+    # Nếu cell qua được thì trả về luôn; ngược lại dùng BFS tìm cell qua được gần nhất (để target không rơi vào tường).
     def _nearest_passable_cell(self, level: Level, cell: Cell) -> Cell:
         """Return cell if passable, otherwise the nearest passable cell."""
         if self._is_passable_cell(level, cell):
@@ -556,10 +583,12 @@ class Ghost:
                 queue.append(neighbor)
         return cell
 
+    # Trả về danh sách 4 cell láng giềng có thể đi qua được (dùng để mở rộng node trong A*/BFS).
     def _neighbor_cells(self, level: Level, cell: Cell) -> list[Cell]:
         """Return passable neighbors for A* expansion."""
         return [neighbor for neighbor in self._bounded_neighbor_cells(cell) if self._is_passable_cell(level, neighbor)]
 
+    # Trả về 4 cell láng giềng nằm trong giới hạn bản đồ (chưa xét tường).
     def _bounded_neighbor_cells(self, cell: Cell) -> list[Cell]:
         """Return neighbors that are inside the board."""
         row, col = cell
@@ -570,21 +599,25 @@ class Ghost:
                 neighbors.append(next_cell)
         return neighbors
 
+    # Một cell có đi qua được không (đường, hoặc cổng nhà ma nếu trạng thái cho phép).
     def _is_passable_cell(self, level: Level, cell: Cell) -> bool:
         """Return whether a board cell is passable for this ghost state."""
         row, col = cell
         tile = level[row][col]
         return tile < WALL_TILE or (tile == GATE_TILE and self._can_use_gate())
 
+    # Ma này có được phép đi qua cổng nhà ma không (cần khi chết về hồi sinh, đang ở trong hộp, hoặc gần hộp).
     def _can_use_gate(self) -> bool:
         """Return whether this ghost may pass through the ghost-house gate."""
         return self.dead or self.in_box or _in_chase_box(self)
 
+    # Heuristic Manhattan cho A*: khoảng cách giữa 2 cell.
     @staticmethod
     def _heuristic(cell: Cell, goal: Cell) -> int:
         """Return Manhattan distance between two cells."""
         return abs(cell[0] - goal[0]) + abs(cell[1] - goal[1])
 
+    # Dựng lại path từ dict came_from của A*; trả về danh sách cell từ sau start đến goal (bỏ start).
     @staticmethod
     def _reconstruct_path(came_from: dict[Cell, Cell], current: Cell) -> list[Cell]:
         """Build a start-exclusive path from A* parent links."""
@@ -596,6 +629,7 @@ class Ghost:
         return path[1:]
 
 
+# Tính target cho 4 con ma mỗi frame: chế độ chạy trốn khi Pac-Man có powerup, ngược lại chase/scatter/patrol theo từng ma.
 def get_targets(player: Player, ghosts: list[Ghost], level: Level) -> list[Point]:
     """Calculate the next target for each ghost."""
     if player.x_pos < RUNAWAY_SPLIT:
@@ -648,11 +682,13 @@ def get_targets(player: Player, ghosts: list[Ghost], level: Level) -> list[Point
     return [blink_target, ink_target, pink_target, clyd_target]
 
 
+# Kiểm tra ma có nằm trong vùng "chase box" (vùng gần nhà ma dùng để xét luật cổng).
 def _in_chase_box(ghost: Ghost) -> bool:
     """Return whether a ghost is inside the house target box."""
     return CHASE_BOX_MIN_X < ghost.x_pos < CHASE_BOX_MAX_X and CHASE_BOX_MIN_Y < ghost.y_pos < CHASE_BOX_MAX_Y
 
 
+# Tính target ở chế độ bình thường: ưu tiên về hộp khi chết, ra khỏi hộp khi in_box, chase nếu thấy Pac-Man, ngược lại patrol/scatter.
 def _normal_target(level: Level, player: Player, ghost: Ghost, fallback_target: Point) -> Point:
     """Return chase, exit, return, or scatter target for normal play."""
     ghost.is_patrolling = False
@@ -666,6 +702,7 @@ def _normal_target(level: Level, player: Player, ghost: Ghost, fallback_target: 
     return _patrol_target(level, ghost, fallback_target)
 
 
+# Trả về điểm tuần tra hiện tại trên bản đồ; xoay sang điểm khác nếu ma đã quá gần điểm hiện tại.
 def _patrol_target(level: Level, ghost: Ghost, fallback_target: Point) -> Point:
     """Return the current whole-map patrol target."""
     patrol_cells = _patrol_cells(level, ghost)
@@ -684,6 +721,7 @@ def _patrol_target(level: Level, ghost: Ghost, fallback_target: Point) -> Point:
     return fallback_target
 
 
+# Trả về danh sách cell tuần tra rải đều trên toàn bản đồ (có cache theo level + khả năng dùng cổng).
 def _patrol_cells(level: Level, ghost: Ghost) -> list[Cell]:
     """Return passable patrol cells spread across the whole board."""
     cache_key = (id(level), ghost._can_use_gate())
@@ -710,6 +748,7 @@ def _patrol_cells(level: Level, ghost: Ghost) -> list[Cell]:
     return cells
 
 
+# BFS từ vị trí ma để tìm tập cell có thể tới được (dùng để lọc patrol cells khả thi).
 def _reachable_patrol_cells(level: Level, ghost: Ghost) -> set[Cell]:
     """Return all patrol cells reachable from the ghost's current cell."""
     cache_key = (id(level), ghost._can_use_gate())
@@ -728,6 +767,7 @@ def _reachable_patrol_cells(level: Level, ghost: Ghost) -> set[Cell]:
     return reachable
 
 
+# Kiểm tra cell có nằm bên trong nhà ma không (tránh chọn làm điểm tuần tra).
 def _is_ghost_house_cell(cell: Cell) -> bool:
     """Return whether a cell is inside the ghost house."""
     row, col = cell
@@ -736,12 +776,14 @@ def _is_ghost_house_cell(cell: Cell) -> bool:
     return GHOST_BOX_MIN_X < x_pos < GHOST_BOX_MAX_X and GHOST_BOX_MIN_Y < y_pos < GHOST_BOX_MAX_Y
 
 
+# Đổi (row, col) sang tọa độ pixel tâm cell tương ứng.
 def _point_from_cell(cell: Cell) -> Point:
     """Return the pixel center for a board cell."""
     row, col = cell
     return col * CELL_W + CELL_W // 2, row * CELL_H + CELL_H // 2
 
 
+# Ma có phát hiện Pac-Man không: True nếu trong bán kính cảm nhận hoặc có line-of-sight thẳng hàng không bị tường chặn.
 def _can_detect_player(level: Level, player: Player, ghost: Ghost) -> bool:
     """Return whether the ghost can currently detect Pac-Man."""
     ghost_cell = ghost._cell_from_point((ghost.center_x, ghost.center_y))
@@ -752,6 +794,7 @@ def _can_detect_player(level: Level, player: Player, ghost: Ghost) -> bool:
     return _has_line_of_sight(level, ghost_cell, player_cell)
 
 
+# Ma và Pac-Man có cùng hàng/cột mà giữa không có tường nào không (đường ngắm thẳng).
 def _has_line_of_sight(level: Level, ghost_cell: Cell, player_cell: Cell) -> bool:
     """Return whether ghost and player share an unobstructed row or column."""
     if ghost_cell[0] == player_cell[0]:

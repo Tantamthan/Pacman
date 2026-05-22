@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python benchmark_ai.py --games 5 --depth 2)",
+      "Bash(python benchmark_ai.py --games 1 --depth 2)",
+      "Bash(python -c \"print\\('still alive'\\)\")",
+      "Bash(python benchmark_ai.py --games 3 --depth 2)",
+      "Bash(python *)"
+    ]
+  }
+}
