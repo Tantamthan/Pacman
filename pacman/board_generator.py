@@ -35,21 +35,36 @@ TUNNEL_ROW = 16
 GRID_ROWS = 10
 GRID_COLS = 4
 
+# Sửa lại danh sách SHAPES trong code của bạn:
 SHAPES = [
-    [(0,0)], # 1x1
-    [(0,0), (0,1)], # 1x2
-    [(0,0), (1,0)], # 2x1
-    [(0,0), (0,1), (0,2)], # 1x3
-    [(0,0), (1,0), (2,0)], # 3x1
-    [(0,0), (1,0), (1,1)], # L
-    [(0,0), (0,1), (1,0)],
-    [(0,0), (0,1), (1,1)],
-    [(0,1), (1,0), (1,1)],
-    [(0,0), (0,1), (0,2), (1,1)], # T
-    [(1,0), (1,1), (1,2), (0,1)],
-    [(0,0), (1,0), (2,0), (1,1)],
-    [(0,1), (1,1), (2,1), (1,0)],
-    [(0,0), (0,1), (1,0), (1,1)]  # 2x2
+    # --- KHỐI CƠ BẢN (Giữ lại để tạo khung) ---
+    [(0,0), (0,1)],        # 1x2 Ngang
+    [(0,0), (1,0)],        # 2x1 Dọc
+    [(0,0), (0,1), (0,2)], # 1x3 Ngang (Hành lang dài)
+    [(0,0), (1,0), (2,0)], # 3x1 Dọc (Hành lang dài)
+    
+    # --- KHỐI CHỮ T (Phá vỡ tính đơn điệu của hành lang) ---
+    [(0,0), (0,1), (0,2), (1,1)], # T xuôi
+    [(1,0), (1,1), (1,2), (0,1)], # T ngược
+    [(0,0), (1,0), (2,0), (1,1)], # T quay phải
+    [(0,1), (1,1), (2,1), (1,0)], # T quay trái
+
+    # --- KHỐI CHỮ L DÀI (Bẻ góc mượt, bớt vuông vức hơn L ngắn) ---
+    [(0,0), (1,0), (2,0), (2,1)], # L xuôi dài (Dọc 3, chân 2)
+    [(0,1), (1,1), (2,1), (2,0)], # L ngược dài
+    [(0,0), (0,1), (0,2), (1,0)], # L nằm ngang 
+    [(0,0), (0,1), (0,2), (1,2)], # L nằm ngang ngược
+
+    # --- KHỐI ZIG-ZAG / KHỐI NGOẰN NGOÈO (Vũ khí bí mật bớt vuông) ---
+    # Những khối này tạo ra các đoạn rẽ nhánh so le, triệt tiêu cảm giác ô vuông bàn cờ
+    [(0,0), (0,1), (1,1), (1,2)], # Khối bậc thang ngang (Z-shape)
+    [(0,1), (0,2), (1,0), (1,1)], # Khối bậc thang ngang ngược
+    [(0,0), (1,0), (1,1), (2,1)], # Khối bậc thang dọc
+    [(0,1), (1,1), (1,0), (2,0)], # Khối bậc thang dọc ngược
+
+    # --- KHỐI ĐƯỜNG TRƯỜNG DÀI (Bắt buộc phải có để map thông thoáng) ---
+    [(0,0), (0,1), (0,2), (0,3)], # 1x4 Ngang cực dài
+    [(0,0), (1,0), (2,0), (3,0)], # 4x1 Dọc cực dài
 ]
 
 def _is_logical_wall(logical: list[list[int]], row: int, col: int) -> bool:
